@@ -1,0 +1,653 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>localmem &mdash; memory that follows you across every AI tool</title>
+<meta name="description" content="Local-first AI memory layer. Single static Rust binary. Apache-2.0. MCP-native. No content ever leaves your machine.">
+<meta name="theme-color" content="#0a0a0a">
+<meta property="og:title" content="localmem &mdash; memory that follows you across every AI tool">
+<meta property="og:description" content="Local-first AI memory layer. Single static Rust binary. Apache-2.0. MCP-native. No content ever leaves your machine.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://localmem.org/">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='20' fill='%230a0a0a'/%3E%3Ctext x='50' y='65' font-family='monospace' font-size='42' font-weight='700' text-anchor='middle' fill='%2300ff88'%3Elm%3C/text%3E%3C/svg%3E">
+
+<style>
+:root {
+  color-scheme: light dark;
+  --bg: #ffffff;
+  --bg-soft: #fafaf9;
+  --fg: #0a0a0a;
+  --fg-soft: #525252;
+  --rule: #e7e5e4;
+  --accent: #16a34a;
+  --accent-soft: #dcfce7;
+  --code-bg: #f5f5f4;
+  --code-border: #e7e5e4;
+  --link: #1d4ed8;
+  --warn-bg: #fef3c7;
+  --warn-border: #fcd34d;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0a0a0a;
+    --bg-soft: #18181b;
+    --fg: #fafafa;
+    --fg-soft: #a1a1aa;
+    --rule: #27272a;
+    --accent: #4ade80;
+    --accent-soft: #14532d;
+    --code-bg: #18181b;
+    --code-border: #27272a;
+    --link: #93c5fd;
+    --warn-bg: #422006;
+    --warn-border: #92400e;
+  }
+}
+* { box-sizing: border-box; }
+html, body {
+  margin: 0;
+  padding: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  font-size: 16px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+a { color: var(--link); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+.nav {
+  position: sticky;
+  top: 0;
+  background: var(--bg);
+  border-bottom: 1px solid var(--rule);
+  padding: 0.85rem 1.5rem;
+  z-index: 50;
+  backdrop-filter: blur(8px);
+}
+.nav-inner {
+  max-width: 1100px;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+.brand {
+  font-family: "JetBrains Mono", "SF Mono", Menlo, monospace;
+  font-weight: 700;
+  font-size: 1.05rem;
+  color: var(--fg);
+}
+.brand:hover { text-decoration: none; }
+.brand .dot { color: var(--accent); }
+.nav-links {
+  display: flex;
+  gap: 1.25rem;
+  align-items: center;
+  font-size: 0.92rem;
+}
+.nav-links a { color: var(--fg-soft); }
+.nav-links a:hover { color: var(--fg); text-decoration: none; }
+.nav-cta {
+  background: var(--fg);
+  color: var(--bg) !important;
+  padding: 0.4rem 0.9rem;
+  border-radius: 6px;
+  font-weight: 500;
+}
+.nav-cta:hover { opacity: 0.9; text-decoration: none; }
+
+main { max-width: 1100px; margin: 0 auto; padding: 0 1.5rem; }
+
+.hero { padding: 4rem 0 3rem; text-align: center; }
+.hero h1 {
+  font-size: clamp(1.75rem, 4vw, 3rem);
+  line-height: 1.15;
+  margin: 0 0 1rem;
+  letter-spacing: -0.02em;
+  font-weight: 700;
+}
+.hero .lede {
+  font-size: clamp(1rem, 2vw, 1.2rem);
+  color: var(--fg-soft);
+  max-width: 720px;
+  margin: 0 auto 2rem;
+}
+.hero-tag {
+  display: inline-block;
+  background: var(--accent-soft);
+  color: var(--accent);
+  padding: 0.25rem 0.65rem;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  margin-bottom: 1.25rem;
+}
+@media (prefers-color-scheme: dark) {
+  .hero-tag { color: #86efac; }
+}
+
+.install {
+  background: var(--code-bg);
+  border: 1px solid var(--code-border);
+  border-radius: 10px;
+  padding: 1.1rem 1.2rem;
+  font-family: "JetBrains Mono", "SF Mono", Menlo, monospace;
+  font-size: 0.92rem;
+  text-align: left;
+  max-width: 720px;
+  margin: 0 auto 1rem;
+  overflow-x: auto;
+  white-space: pre;
+  position: relative;
+}
+.install .prompt { color: var(--fg-soft); user-select: none; }
+.install .copy {
+  position: absolute;
+  top: 0.55rem;
+  right: 0.6rem;
+  background: var(--bg);
+  border: 1px solid var(--rule);
+  color: var(--fg-soft);
+  padding: 0.2rem 0.55rem;
+  border-radius: 5px;
+  font-size: 0.72rem;
+  font-family: inherit;
+  cursor: pointer;
+  user-select: none;
+}
+.install .copy:hover { color: var(--fg); border-color: var(--fg-soft); }
+.install .copy.done { color: var(--accent); border-color: var(--accent); }
+
+.cta-row {
+  display: flex;
+  justify-content: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  margin-top: 1.25rem;
+}
+.btn {
+  padding: 0.55rem 1.1rem;
+  border-radius: 8px;
+  font-weight: 500;
+  font-size: 0.92rem;
+  border: 1px solid var(--rule);
+  background: var(--bg);
+  color: var(--fg);
+  cursor: pointer;
+}
+.btn:hover { border-color: var(--fg-soft); text-decoration: none; }
+.btn-primary {
+  background: var(--fg);
+  color: var(--bg);
+  border-color: var(--fg);
+}
+.btn-primary:hover { opacity: 0.9; }
+
+.badges {
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+  margin: 0 0 1.5rem;
+}
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.78rem;
+  background: var(--bg-soft);
+  border: 1px solid var(--rule);
+  padding: 0.3rem 0.7rem;
+  border-radius: 999px;
+  color: var(--fg-soft);
+  font-family: "JetBrains Mono", "SF Mono", Menlo, monospace;
+}
+.badge .b-val { color: var(--fg); font-weight: 600; }
+
+section { padding: 3rem 0; border-top: 1px solid var(--rule); }
+section h2 {
+  font-size: clamp(1.4rem, 2.5vw, 1.8rem);
+  margin: 0 0 0.5rem;
+  letter-spacing: -0.01em;
+  font-weight: 700;
+}
+section h2 + .sub {
+  color: var(--fg-soft);
+  margin: 0 0 2rem;
+  max-width: 720px;
+}
+
+.demo {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1rem;
+  max-width: 820px;
+  margin: 0 auto;
+}
+.demo pre {
+  background: var(--code-bg);
+  border: 1px solid var(--code-border);
+  border-radius: 10px;
+  padding: 1.1rem 1.3rem;
+  font-family: "JetBrains Mono", "SF Mono", Menlo, monospace;
+  font-size: 0.88rem;
+  overflow-x: auto;
+  margin: 0;
+  line-height: 1.55;
+}
+.demo .comment { color: var(--fg-soft); }
+.demo .accent { color: var(--accent); }
+.demo .punch {
+  text-align: center;
+  font-size: 0.95rem;
+  color: var(--fg-soft);
+  margin: 0.75rem 0;
+  font-style: italic;
+}
+
+.features {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 1rem;
+}
+.feature {
+  background: var(--bg-soft);
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+  padding: 1.25rem;
+}
+.feature h3 {
+  margin: 0 0 0.4rem;
+  font-size: 1.02rem;
+  font-weight: 600;
+}
+.feature p { margin: 0; font-size: 0.92rem; color: var(--fg-soft); }
+.feature .icon {
+  display: inline-block;
+  font-family: "JetBrains Mono", "SF Mono", Menlo, monospace;
+  font-size: 0.7rem;
+  color: var(--accent);
+  background: var(--accent-soft);
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+  margin-bottom: 0.55rem;
+  font-weight: 600;
+}
+
+.compare {
+  overflow-x: auto;
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+  background: var(--bg-soft);
+}
+.compare table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 0.9rem;
+}
+.compare th, .compare td {
+  padding: 0.7rem 0.9rem;
+  text-align: left;
+  border-bottom: 1px solid var(--rule);
+  vertical-align: top;
+}
+.compare th { font-weight: 600; background: var(--bg); }
+.compare tr:last-child td { border-bottom: none; }
+.compare .ours { background: var(--accent-soft); }
+.compare .ours strong { color: var(--accent); }
+@media (prefers-color-scheme: dark) {
+  .compare .ours { background: rgba(20, 83, 45, 0.4); }
+  .compare .ours strong { color: #86efac; }
+}
+
+.agents {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  justify-content: center;
+}
+.agent-pill {
+  background: var(--bg-soft);
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  padding: 0.55rem 1rem;
+  font-size: 0.92rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.agent-pill code {
+  font-family: "JetBrains Mono", "SF Mono", Menlo, monospace;
+  font-size: 0.78rem;
+  color: var(--fg-soft);
+}
+
+.uses {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 1.25rem;
+}
+.use-card {
+  background: var(--bg-soft);
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+  padding: 1.25rem;
+}
+.use-card h3 { margin: 0 0 0.5rem; font-size: 1.05rem; }
+.use-card p { margin: 0; color: var(--fg-soft); font-size: 0.92rem; }
+.use-card a { font-size: 0.88rem; }
+
+.warn {
+  background: var(--warn-bg);
+  border: 1px solid var(--warn-border);
+  border-radius: 10px;
+  padding: 1rem 1.2rem;
+  margin: 1.5rem 0;
+  font-size: 0.9rem;
+  color: var(--fg);
+}
+.warn strong { color: var(--fg); }
+
+footer {
+  border-top: 1px solid var(--rule);
+  padding: 2.5rem 1.5rem 3rem;
+  text-align: center;
+  font-size: 0.88rem;
+  color: var(--fg-soft);
+}
+footer a { color: var(--fg-soft); }
+footer .links {
+  display: flex;
+  justify-content: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.6rem;
+}
+</style>
+</head>
+<body>
+
+<nav class="nav">
+  <div class="nav-inner">
+    <a href="/" class="brand">local<span class="dot">·</span>mem</a>
+    <div class="nav-links">
+      <a href="#install">Install</a>
+      <a href="#demo">Demo</a>
+      <a href="#features">Features</a>
+      <a href="#compare">Compare</a>
+      <a href="#agents">Agents</a>
+      <a href="https://github.com/VJ-yadav/localmem-public" class="nav-cta">GitHub</a>
+    </div>
+  </div>
+</nav>
+
+<main>
+  <section class="hero" style="border-top: none;">
+    <div class="hero-tag">v0.2 &middot; Apache-2.0 &middot; MCP-native</div>
+    <h1>Memory that follows you across every AI tool.</h1>
+    <p class="lede">
+      Local-first. Open format. Yours.<br>
+      Single static Rust binary. <strong>No content ever leaves your machine.</strong>
+    </p>
+
+    <div class="badges">
+      <span class="badge"><span>event log</span><span class="b-val">source of truth</span></span>
+      <span class="badge"><span>content telemetry</span><span class="b-val">zero</span></span>
+      <span class="badge"><span>facts</span><span class="b-val">bitemporal</span></span>
+      <span class="badge"><span>MCP tools</span><span class="b-val">6 (narrow + auditable)</span></span>
+      <span class="badge"><span>runtime</span><span class="b-val">1 Rust binary</span></span>
+    </div>
+
+    <div class="install" id="install">
+      <button class="copy" type="button" onclick="copyInstall(this)">copy</button><span class="prompt">$ </span>curl -fsSL https://github.com/VJ-yadav/localmem-public/releases/latest/download/install.sh | sh
+<span class="prompt">$ </span>localmem init && localmem fetch-model && localmem serve &amp;
+<span class="prompt">$ </span>localmem mcp install --client claude</div>
+
+    <div class="cta-row">
+      <a class="btn btn-primary" href="https://github.com/VJ-yadav/localmem-public#install">Get started</a>
+      <a class="btn" href="https://github.com/VJ-yadav/localmem-public/blob/main/docs/HOW_IT_WORKS.md">User guide</a>
+      <a class="btn" href="https://github.com/VJ-yadav/localmem-public/blob/main/docs/SHARED_MEMORY_FOR_AGENTS.md">Multi-agent shared memory</a>
+    </div>
+  </section>
+
+  <section id="demo">
+    <h2>The 30-second demo</h2>
+    <p class="sub">Every other memory product is a database. We're an event log with caches.</p>
+
+    <div class="demo">
+      <pre><span class="comment"># Write a memory</span>
+$ localmem write --kind preference --content "I prefer Rust for systems work"
+
+<span class="comment"># Search for it</span>
+$ localmem search "what language do I prefer"
+<span class="accent">[1]</span> I prefer Rust for systems work  score=0.412  id=01K...
+
+<span class="comment"># Now blow away every derived store</span>
+$ rm -rf ~/.localmem/derived
+
+<span class="comment"># Rebuild everything from the event log alone</span>
+$ localmem replay
+
+<span class="comment"># Search again — same result, fully recomputed from events.jsonl</span>
+$ localmem search "what language do I prefer"</pre>
+      <p class="punch">
+        <code>~/.localmem/events.jsonl</code> is the single source of truth. DuckDB, LanceDB, Tantivy &mdash; all recomputable caches.
+      </p>
+    </div>
+  </section>
+
+  <section id="features">
+    <h2>What's inside</h2>
+    <p class="sub">Narrow MCP surface. Wide CLI surface. Auditable trust substrate underneath both.</p>
+
+    <div class="features">
+      <div class="feature">
+        <span class="icon">moat</span>
+        <h3>Event log = source of truth</h3>
+        <p>Append-only <code>events.jsonl</code>. <code>localmem replay</code> rebuilds every derived store deterministically. <code>cat</code>-able forever.</p>
+      </div>
+      <div class="feature">
+        <span class="icon">forget</span>
+        <h3>Auditable forgetting</h3>
+        <p>"Delete" emits a <code>forget</code> event. The history stays intact. <code>localmem audit &lt;id&gt;</code> traces every touch.</p>
+      </div>
+      <div class="feature">
+        <span class="icon">bitemporal</span>
+        <h3>Bitemporal facts</h3>
+        <p>Every fact has <code>valid_from</code>, <code>valid_to</code>, <code>retired_at</code>. Ask "what did we believe last Tuesday?" with <code>--at-time</code>.</p>
+      </div>
+      <div class="feature">
+        <span class="icon">smart</span>
+        <h3>Active contradiction resolution</h3>
+        <p>Higher-confidence facts on the same <code>(subject, predicate)</code> retire the prior live fact and emit an <code>Update</code> event.</p>
+      </div>
+      <div class="feature">
+        <span class="icon">tags</span>
+        <h3>Container tags</h3>
+        <p>Scope captures with <code>--tags project=X</code>. Reserved tags: <code>retention=ephemeral</code>, <code>visibility=private</code>.</p>
+      </div>
+      <div class="feature">
+        <span class="icon">kinds</span>
+        <h3>Closed-core kinds</h3>
+        <p>fact / preference / decision / constraint / todo / note. Per-kind recency decay: preferences age slower than todos.</p>
+      </div>
+      <div class="feature">
+        <span class="icon">mcp</span>
+        <h3>MCP-native</h3>
+        <p>6 tools, 2 prompts, 4 resources. Works with every MCP-compatible client. Generic config recipe for the rest.</p>
+      </div>
+      <div class="feature">
+        <span class="icon">import</span>
+        <h3>Import wizard</h3>
+        <p>First-run scan of <code>~/Downloads</code> finds ChatGPT and Claude export ZIPs. One-step migration in.</p>
+      </div>
+      <div class="feature">
+        <span class="icon">peer</span>
+        <h3>CLI + server are peers</h3>
+        <p>Either can run without the other. They share the filesystem using each store's native concurrency model.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="compare">
+    <h2>How it compares</h2>
+    <p class="sub">Narrow on purpose. Trust substrate underneath everything.</p>
+
+    <div class="compare">
+      <table>
+        <thead>
+          <tr>
+            <th>Trait</th>
+            <th class="ours"><strong>localmem</strong></th>
+            <th>Local-first peers</th>
+            <th>Cloud SaaS</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Where your data lives</td>
+            <td class="ours"><strong>Your machine</strong></td>
+            <td>Your machine</td>
+            <td>Their cloud</td>
+          </tr>
+          <tr>
+            <td>Plaintext leaving your machine</td>
+            <td class="ours"><strong>Never</strong></td>
+            <td>Varies (some default-on telemetry)</td>
+            <td>Always</td>
+          </tr>
+          <tr>
+            <td><code>forget</code> is auditable</td>
+            <td class="ours"><strong>Event in the log</strong></td>
+            <td>App-level delete</td>
+            <td>Trust the vendor</td>
+          </tr>
+          <tr>
+            <td>Recoverable from a plain-text file</td>
+            <td class="ours"><strong>Yes (<code>localmem replay</code>)</strong></td>
+            <td>No</td>
+            <td>No</td>
+          </tr>
+          <tr>
+            <td>Runtime</td>
+            <td class="ours"><strong>Single static Rust binary</strong></td>
+            <td>Node + framework deps</td>
+            <td>Cloud SaaS</td>
+          </tr>
+          <tr>
+            <td>MCP tool count</td>
+            <td class="ours"><strong>6 (narrow + auditable)</strong></td>
+            <td>25&ndash;50+ (wide)</td>
+            <td>varies</td>
+          </tr>
+          <tr>
+            <td>License</td>
+            <td class="ours"><strong>Apache-2.0 (non-relicensable)</strong></td>
+            <td>Mostly Apache-2.0</td>
+            <td>Mixed</td>
+          </tr>
+          <tr>
+            <td>If the project dies</td>
+            <td class="ours"><strong>Your memory works</strong></td>
+            <td>Your memory works</td>
+            <td>Your memory is gone</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section id="agents">
+    <h2>Works with every MCP-aware agent</h2>
+    <p class="sub">Five clients ship with a one-command auto-installer. Everything else uses the generic MCP config recipe.</p>
+
+    <div class="agents">
+      <div class="agent-pill">Claude Desktop <code>--client claude</code></div>
+      <div class="agent-pill">Claude Code <code>--client claude-code</code></div>
+      <div class="agent-pill">Cursor <code>--client cursor</code></div>
+      <div class="agent-pill">Cline <code>--client cline</code></div>
+      <div class="agent-pill">Windsurf <code>--client windsurf</code></div>
+      <div class="agent-pill">Continue <code>generic</code></div>
+      <div class="agent-pill">Zed <code>generic</code></div>
+      <div class="agent-pill">Codex <code>generic</code></div>
+      <div class="agent-pill">OpenCode <code>generic</code></div>
+      <div class="agent-pill">Aider <code>generic</code></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Use cases</h2>
+    <p class="sub">Concrete patterns that solve a real pain on day one.</p>
+
+    <div class="uses">
+      <div class="use-card">
+        <h3>"Stop re-explaining things to my agents"</h3>
+        <p>Two or more AI agents that lose context between sessions. Install once, wire both via MCP, anything one learns is available to the other.</p>
+        <p style="margin-top:0.8rem;"><a href="https://github.com/VJ-yadav/localmem-public/blob/main/docs/SHARED_MEMORY_FOR_AGENTS.md">SHARED_MEMORY_FOR_AGENTS &rarr;</a></p>
+      </div>
+      <div class="use-card">
+        <h3>Per-project memory, no cross-leak</h3>
+        <p>Personal facts in <code>~/.localmem</code>, per-repo facts in <code>&lt;project&gt;/.localmem</code>. Drop a <code>.mcp.json</code> in any repo and that project's agents see only that project's memory.</p>
+        <p style="margin-top:0.8rem;"><a href="https://github.com/VJ-yadav/localmem-public/blob/main/docs/HOW_IT_WORKS.md#9-per-project-memory">Per-project setup &rarr;</a></p>
+      </div>
+      <div class="use-card">
+        <h3>Audit what your agent knows</h3>
+        <p><code>localmem profile &lt;subject&gt;</code> synthesizes a markdown profile. <code>localmem audit &lt;fact_id&gt;</code> walks the event log to show every event that touched a fact. No black boxes.</p>
+        <p style="margin-top:0.8rem;"><a href="https://github.com/VJ-yadav/localmem-public/blob/main/docs/HOW_IT_WORKS.md#6-commands">CLI surface &rarr;</a></p>
+      </div>
+      <div class="use-card">
+        <h3>Time-travel your memory</h3>
+        <p>Bitemporal facts mean you can ask "what did I believe last Tuesday?" with <code>--at-time RFC3339</code>. Facts have <code>valid_from</code>, <code>valid_to</code>, <code>retired_at</code>.</p>
+        <p style="margin-top:0.8rem;"><a href="https://github.com/VJ-yadav/localmem-public/blob/main/docs/HOW_IT_WORKS.md#5-concepts">Concepts &rarr;</a></p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>What's free, forever</h2>
+    <p class="sub">The core binary, MCP server, event log schema, all importers &mdash; all under Apache-2.0. Your data lives in a folder you own. The OSS core never requires a network call to complete a <code>memory_*</code> operation.</p>
+    <p style="text-align: center; color: var(--fg-soft);"><strong>Zero content telemetry, ever.</strong></p>
+
+    <div class="warn">
+      <strong>v0.2.0 release status:</strong> prebuilt binary ships for macOS Apple Silicon (M-series). Intel Mac, Linux x86_64, and Linux aarch64 work today by building from source. Windows planned for a future release. Cross-compiled binaries for everything except Windows ship in v0.2.1.
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="links">
+    <a href="https://github.com/VJ-yadav/localmem-public">GitHub</a>
+    <a href="https://www.npmjs.com/package/localmem-mcp">npm</a>
+    <a href="https://github.com/VJ-yadav/localmem-public/discussions">Discussions</a>
+    <a href="https://github.com/VJ-yadav/localmem-public/issues">Issues</a>
+    <a href="https://github.com/VJ-yadav/localmem-public/releases">Releases</a>
+    <a href="https://github.com/VJ-yadav/localmem-public/blob/main/docs/HOW_IT_WORKS.md">Docs</a>
+    <a href="https://github.com/VJ-yadav/localmem-public/blob/main/LICENSE">License</a>
+  </div>
+  <div>
+    localmem &middot; Apache-2.0 &middot; built by <a href="https://github.com/VJ-yadav">Vijay Yadav</a>
+  </div>
+</footer>
+
+<script>
+function copyInstall(btn) {
+  var pre = btn.parentElement;
+  var text = pre.innerText.replace(/^copy\n/, '').replace(/^\$ /gm, '');
+  navigator.clipboard.writeText(text).then(function() {
+    btn.textContent = 'copied!';
+    btn.classList.add('done');
+    setTimeout(function() {
+      btn.textContent = 'copy';
+      btn.classList.remove('done');
+    }, 1800);
+  });
+}
+</script>
+</body>
+</html>
