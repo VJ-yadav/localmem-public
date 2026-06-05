@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>localmem &middot; one-page summary</title>
+<meta name="description" content="Memory that follows you across every AI tool. Local-first. Open format. Yours.">
+<style>
+@page { size: Letter; margin: 0.55in 0.55in 0.6in 0.55in; }
+:root {
+  --fg: #0a0a0a;
+  --fg-soft: #525252;
+  --rule: #e7e5e4;
+  --accent: #16a34a;
+  --accent-soft: #f0fdf4;
+  --code-bg: #f5f5f4;
+  --warn-bg: #fef9c3;
+  --warn-border: #facc15;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; background: white; color: var(--fg); font-family: "Inter", -apple-system, BlinkMacSystemFont, "Helvetica Neue", Arial, sans-serif; font-size: 10.5pt; line-height: 1.45; -webkit-font-smoothing: antialiased; }
+
+.page { max-width: 8.5in; margin: 0 auto; padding: 0.4in 0.55in; }
+@media screen { .page { box-shadow: 0 1px 6px rgba(0,0,0,0.08); margin: 1rem auto; min-height: 11in; } body { background: #fafaf9; padding: 1.5rem 0; } }
+
+.hero { border-bottom: 2px solid var(--fg); padding-bottom: 0.7em; margin-bottom: 1em; }
+.brand { font-family: "JetBrains Mono", "SF Mono", Menlo, monospace; font-weight: 700; font-size: 18pt; }
+.brand .dot { color: var(--accent); }
+.tagline { font-size: 16pt; font-weight: 600; line-height: 1.2; margin: 0.4em 0 0.2em; letter-spacing: -0.01em; }
+.subhead { color: var(--fg-soft); margin: 0; font-size: 10.5pt; }
+.url-pill { display: inline-block; background: var(--fg); color: white; padding: 2px 10px; border-radius: 999px; font-family: "JetBrains Mono", monospace; font-size: 9pt; margin-top: 6px; }
+
+h2 { font-size: 11.5pt; font-weight: 600; margin: 1em 0 0.35em; text-transform: uppercase; letter-spacing: 0.05em; color: var(--fg-soft); }
+h3 { font-size: 10.5pt; font-weight: 600; margin: 0.5em 0 0.2em; }
+p { margin: 0.3em 0; }
+ul { margin: 0.3em 0 0.3em 1.1em; padding: 0; }
+li { margin: 0.15em 0; }
+code { font-family: "JetBrains Mono", "SF Mono", Menlo, monospace; font-size: 9.5pt; background: var(--code-bg); padding: 1px 5px; border-radius: 3px; }
+pre { background: var(--code-bg); border: 1px solid var(--rule); border-radius: 5px; padding: 0.55em 0.7em; font-family: "JetBrains Mono", monospace; font-size: 9pt; line-height: 1.45; overflow-x: auto; margin: 0.4em 0; }
+
+.col2 { display: grid; grid-template-columns: 1fr 1fr; gap: 1em; }
+.col3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.8em; }
+.card { border: 1px solid var(--rule); border-radius: 6px; padding: 0.6em 0.7em; }
+.card-title { font-weight: 600; font-size: 10pt; margin: 0 0 0.2em; }
+.card-body { font-size: 9.5pt; color: var(--fg-soft); margin: 0; }
+
+.steps { counter-reset: step; padding: 0; list-style: none; margin: 0.4em 0; }
+.steps li { counter-increment: step; position: relative; padding-left: 1.6em; margin-bottom: 0.5em; }
+.steps li::before { content: counter(step); position: absolute; left: 0; top: 0.05em; width: 1.2em; height: 1.2em; border-radius: 50%; background: var(--fg); color: white; font-weight: 700; font-size: 8.5pt; display: flex; align-items: center; justify-content: center; }
+
+table { border-collapse: collapse; width: 100%; font-size: 9.5pt; margin: 0.4em 0; }
+th, td { border: 1px solid var(--rule); padding: 5px 7px; text-align: left; vertical-align: top; }
+th { background: var(--code-bg); font-weight: 600; }
+tr td:first-child { font-weight: 500; }
+.us { background: var(--accent-soft); font-weight: 600; color: var(--accent); }
+
+.warn { background: var(--warn-bg); border: 1px solid var(--warn-border); border-radius: 5px; padding: 0.5em 0.7em; font-size: 9.5pt; }
+
+.footer { border-top: 1px solid var(--rule); margin-top: 1em; padding-top: 0.6em; color: var(--fg-soft); font-size: 8.5pt; display: flex; justify-content: space-between; }
+.footer code { background: none; padding: 0; color: var(--fg-soft); font-size: 8.5pt; }
+
+@media print {
+  body { background: white; }
+  .page { box-shadow: none; padding: 0; margin: 0; max-width: 100%; min-height: 0; }
+}
+</style>
+</head>
+<body>
+
+<div class="page">
+
+<header class="hero">
+  <div class="brand">local<span class="dot">·</span>mem</div>
+  <p class="tagline">Memory that follows you across every AI tool.</p>
+  <p class="subhead">Local-first. Open format. Yours. Single static Rust binary. Apache-2.0. MCP-native. <strong>No content ever leaves your machine.</strong></p>
+  <span class="url-pill">localmem.org</span>
+</header>
+
+<h2>The problem in 30 seconds</h2>
+<p>Every AI tool ships with its own memory. ChatGPT forgets what you told Claude. Cursor forgets what you discussed in ChatGPT. Even within one tool, memory is project-scoped, with no semantic search, no time model, no audit trail. The cloud memory layers exist (Supermemory, mem0, Zep) but hold your data in their cloud, in their format, behind their pricing. <strong>The local-first option had not been built.</strong> localmem is that option.</p>
+
+<h2>How it works</h2>
+<div class="col3">
+  <div class="card">
+    <p class="card-title">1. Append-only event log</p>
+    <p class="card-body"><code>~/.localmem/events.jsonl</code> is the single source of truth. Every write, fact, forget, supersede is a line in this file. <code>cat</code>-able forever.</p>
+  </div>
+  <div class="card">
+    <p class="card-title">2. Three derived caches</p>
+    <p class="card-body">DuckDB (bitemporal facts), LanceDB (BGE-small vectors), Tantivy (BM25). All rebuildable from the event log via <code>localmem replay</code>.</p>
+  </div>
+  <div class="card">
+    <p class="card-title">3. MCP-native surface</p>
+    <p class="card-body">6 tools, 2 prompts, 4 resources exposed via the Model Context Protocol. Every MCP-aware AI client picks them up.</p>
+  </div>
+</div>
+
+<h2>Get started in 60 seconds</h2>
+<ol class="steps">
+  <li><strong>Install the core binary</strong> (macOS Apple Silicon prebuilt; Linux + Intel Mac build from source):
+    <pre>curl -fsSL https://localmem.org/install | sh</pre>
+  </li>
+  <li><strong>Initialize + start</strong>:
+    <pre>localmem init && localmem fetch-model && localmem serve &</pre>
+  </li>
+  <li><strong>Wire into your AI tool</strong>:
+    <pre>localmem mcp install --client claude     # or claude-code, cursor, cline, windsurf</pre>
+  </li>
+</ol>
+<p>Restart the AI client. The agent now has <code>memory_write</code> / <code>memory_search</code> / <code>memory_recall</code> tools. That's it.</p>
+
+<h2>How it compares</h2>
+<table>
+  <thead>
+    <tr>
+      <th>Trait</th>
+      <th class="us">localmem</th>
+      <th>Local-first peers</th>
+      <th>Cloud SaaS (Supermemory / mem0 / Zep)</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr><td>Where your data lives</td><td class="us">Your machine</td><td>Your machine</td><td>Their cloud</td></tr>
+    <tr><td>Plaintext leaving your machine</td><td class="us">Never</td><td>Varies (some default-on telemetry)</td><td>Always</td></tr>
+    <tr><td><code>forget</code> is auditable</td><td class="us">Event in the log</td><td>App-level delete</td><td>Trust the vendor</td></tr>
+    <tr><td>Recoverable from a plain-text file</td><td class="us">Yes (<code>localmem replay</code>)</td><td>No</td><td>No</td></tr>
+    <tr><td>Runtime</td><td class="us">Single static Rust binary</td><td>Node + framework deps</td><td>Cloud SaaS</td></tr>
+    <tr><td>License</td><td class="us">Apache-2.0 (non-relicensable)</td><td>Mostly Apache-2.0</td><td>Mixed</td></tr>
+    <tr><td>If the project dies</td><td class="us">Your memory works</td><td>Your memory works</td><td>Your memory is gone</td></tr>
+  </tbody>
+</table>
+
+<h2>Who this helps</h2>
+<div class="col2">
+  <div class="card">
+    <p class="card-title">Devs using 2+ AI agents</p>
+    <p class="card-body">Stop re-explaining conventions, preferences, and project facts to every new session. Write once, every wired agent reads it. Walkthrough: <code>localmem.org/repo</code> → docs/SHARED_MEMORY_FOR_AGENTS.md</p>
+  </div>
+  <div class="card">
+    <p class="card-title">Teams with shared tribal knowledge</p>
+    <p class="card-body">Per-project <code>--home</code> scoping keeps client work isolated from personal memory. Each repo can have its own <code>.localmem/</code>. No leaks.</p>
+  </div>
+  <div class="card">
+    <p class="card-title">Anyone who wants an audit trail</p>
+    <p class="card-body"><code>localmem audit &lt;fact-id&gt;</code> traces every event, journal entry, and follow-up that touched a fact. No black boxes. No "the AI just decided."</p>
+  </div>
+  <div class="card">
+    <p class="card-title">Privacy-conscious developers</p>
+    <p class="card-body">Zero content telemetry, ever. Your captures stay on disk. No phone-home. The local-first promise is verifiable: <code>cat events.jsonl</code> shows you everything.</p>
+  </div>
+</div>
+
+<div class="warn" style="margin-top: 0.8em;"><strong>v0.2.0 platform support:</strong> macOS Apple Silicon ships as a prebuilt binary. Intel Mac, Linux x86_64, and Linux aarch64 work today by building from source. Windows planned for a future release. Cross-compiled binaries for everything except Windows ship in v0.2.1.</div>
+
+<div class="footer">
+  <span><strong>localmem.org</strong> &middot; Apache-2.0 &middot; built by Vijay Yadav</span>
+  <span><code>npx localmem-mcp install --client claude</code></span>
+</div>
+
+</div>
+
+</body>
+</html>

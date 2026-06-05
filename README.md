@@ -180,6 +180,17 @@ Cross-compiled binaries for Intel Mac + Linux ship in a follow-up release.
 | [STORY.md](STORY.md) | Why localmem exists |
 | [docs/feedback/](docs/feedback/) | Field reports from agents that have used localmem in real work |
 
+### Local web dashboard
+
+A read-only visual browser for the memory in your `~/.localmem/`. Subjects, tags, recent captures, search, profile — all in your browser, no cloud. MVP today, served by the Rust core itself in v0.2.2. See [`dashboard/README.md`](dashboard/README.md).
+
+### Printable marketing
+
+Single-page summaries you can print, share as PDF, or post on a bulletin board:
+
+- [`landing/marketing/one-pager.html`](landing/marketing/one-pager.html) — 1-page Letter summary for sharing as PDF ([live](https://localmem.org/marketing/one-pager.html))
+- [`landing/marketing/flyer.html`](landing/marketing/flyer.html) — dark-themed printable flyer with QR ([live](https://localmem.org/marketing/flyer.html))
+
 ---
 
 ## What's free, forever
