@@ -234,7 +234,7 @@ async function loadSubjects() {
     const subjects = data.subjects || [];
     setText("stat-subjects", `${subjects.length} subjects`);
     if (subjects.length === 0) {
-      list.innerHTML = `<li class="empty">no subjects yet &mdash; capture a memory to see them appear</li>`;
+      list.innerHTML = `<li class="empty">no subjects yet. capture a memory to see them appear.</li>`;
       return;
     }
     list.innerHTML = subjects.map(s =>
@@ -248,7 +248,7 @@ async function loadSubjects() {
     });
   } catch (err) {
     $("subjects-list").innerHTML = `<li class="empty">error loading: ${escapeHtml(err.message)}</li>`;
-    setText("stat-subjects", "— subjects");
+    setText("stat-subjects", "0 subjects");
   }
 }
 
@@ -259,7 +259,7 @@ async function loadTags() {
     const tags = data.tags || [];
     setText("stat-tags", `${tags.length} tags`);
     if (tags.length === 0) {
-      list.innerHTML = `<li class="empty">no tags in use yet &mdash; try <code>--tags project=foo</code> on a write</li>`;
+      list.innerHTML = `<li class="empty">no tags yet. try <code>--tags project=foo</code> on a write.</li>`;
       return;
     }
     list.innerHTML = tags.map(t => {
@@ -275,7 +275,7 @@ async function loadTags() {
     });
   } catch (err) {
     $("tags-list").innerHTML = `<li class="empty">error loading: ${escapeHtml(err.message)}</li>`;
-    setText("stat-tags", "— tags");
+    setText("stat-tags", "0 tags");
   }
 }
 
@@ -286,7 +286,7 @@ async function loadRecent(limit = 25) {
     const captures = data.captures || [];
     setText("stat-recent", `${captures.length} recent`);
     if (captures.length === 0) {
-      feed.innerHTML = `<div class="empty">no captures yet &mdash; try <code>localmem write --kind note --content "hello"</code></div>`;
+      feed.innerHTML = `<div class="empty">no captures yet. try <code>localmem write --kind note --content "hello"</code></div>`;
       return;
     }
     feed.innerHTML = captures.map(c => `
@@ -301,7 +301,7 @@ async function loadRecent(limit = 25) {
     `).join("");
   } catch (err) {
     $("feed").innerHTML = `<div class="empty">error loading recent: ${escapeHtml(err.message)}</div>`;
-    setText("stat-recent", "— recent");
+    setText("stat-recent", "0 recent");
   }
 }
 

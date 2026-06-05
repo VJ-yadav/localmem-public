@@ -7,17 +7,17 @@ A local web UI for visually browsing the memory stored in your
 
 ## What you see
 
-- **Subjects panel** (left) — every entity your memory knows about, with capture counts. Click to recall facts about that subject.
-- **Tags panel** (left) — every container tag in use, with counts. Click to filter the feed to that tag.
-- **Recent captures** (center) — last 25 captures as cards, color-coded by kind (`fact`, `preference`, `decision`, `constraint`, `todo`, `note`).
-- **Search** (top bar) — hybrid / lex / vec retrieval against your memory. Results render in the right panel.
-- **Subject recall** (right panel, after clicking a subject) — every fact tied to that subject.
-- **Profile** (right panel, on demand) — synthesized markdown profile across all subjects.
-- **Connection status** (top bar) — pill turns red if the dashboard can't reach `localmem serve`.
+- **Subjects panel** (left). Every entity your memory knows about, with capture counts. Click to recall facts about that subject.
+- **Tags panel** (left). Every container tag in use, with counts. Click to filter the feed to that tag.
+- **Recent captures** (center). Last 25 captures as cards, color-coded by kind (`fact`, `preference`, `decision`, `constraint`, `todo`, `note`).
+- **Search** (top bar). Hybrid / lex / vec retrieval against your memory. Results render in the right panel.
+- **Subject recall** (right panel, after clicking a subject). Every fact tied to that subject.
+- **Profile** (right panel, on demand). Synthesized markdown profile across all subjects.
+- **Connection status** (top bar). Pill turns red if the dashboard can't reach `localmem serve`.
 
 ## How to use it (v0.2.1)
 
-### Step 1 — start the localmem core
+### Step 1. Start the localmem core
 
 ```bash
 localmem serve
@@ -25,7 +25,7 @@ localmem serve
 
 Leave that running. The dashboard talks to it at the default `http://127.0.0.1:7788`.
 
-### Step 2 — start the dashboard server
+### Step 2. Start the dashboard server
 
 ```bash
 python3 dashboard/serve.py
@@ -59,7 +59,7 @@ Stop with Ctrl-C.
 
 ### Switching the active store
 
-The dashboard lists every `.localmem/` it can discover in the left "Stores" panel. The one currently being served by `localmem serve` is marked `active`. Click any other store — its `localmem serve --home <path>` command is copied to your clipboard.
+The dashboard lists every `.localmem/` it can discover in the left "Stores" panel. The one currently being served by `localmem serve` is marked `active`. Click any other store. Its `localmem serve --home <path>` command is copied to your clipboard.
 
 To switch the active store, stop the current core and start a new one:
 
@@ -100,7 +100,7 @@ This dashboard is intentionally:
 - **Single-user.** No login, no team views, no RBAC. This is your local memory on your machine.
 - **MVP.** v0.2.1 is "tabular browse + search." Force-directed entity graph, conflict timeline, journal viewer, capture editor are post-v0.2.1.
 
-Multi-user / team views / audit retention dashboards / SSO are on the **enterprise tier roadmap** — separate offering in a future release.
+Multi-user / team views / audit retention dashboards / SSO are on the **enterprise tier roadmap** as a separate offering in a future release.
 
 ## Hacking on it
 

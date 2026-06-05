@@ -3,11 +3,11 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>localmem &mdash; memory that follows you across every AI tool</title>
-<meta name="description" content="Local-first AI memory layer. Single static Rust binary. Apache-2.0. MCP-native. No content ever leaves your machine.">
+<title>localmem. agent memory in a file you own.</title>
+<meta name="description" content="Local-first agent memory. Single Rust binary. Apache-2.0. MCP-native. Your data stays on your machine.">
 <meta name="theme-color" content="#16a34a">
-<meta property="og:title" content="localmem &mdash; memory that follows you across every AI tool">
-<meta property="og:description" content="Local-first AI memory layer. Single static Rust binary. Apache-2.0. MCP-native. No content ever leaves your machine.">
+<meta property="og:title" content="localmem. agent memory in a file you own.">
+<meta property="og:description" content="Local-first agent memory. Single Rust binary. Apache-2.0. MCP-native. Your data stays on your machine.">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://localmem.org/">
 <meta name="twitter:card" content="summary_large_image">
@@ -362,16 +362,20 @@ section.lm-section:first-of-type { border-top: none; }
 
 .hero-full__brand {
   font-family: var(--lm-font-display);
-  font-weight: 900;
-  font-size: clamp(64px, 13vw, 180px);
-  line-height: 0.9;
-  letter-spacing: -0.05em;
+  font-weight: 800;
+  font-size: clamp(56px, 12vw, 168px);
+  line-height: 0.95;
+  letter-spacing: 0.005em;
   color: var(--lm-ink);
   margin: 0 0 30px;
   text-transform: lowercase;
   white-space: nowrap;
 }
-.hero-full__brand .a { color: var(--lm-accent); }
+.hero-full__brand .a {
+  color: var(--lm-accent);
+  margin: 0 0.06em;
+  font-weight: 800;
+}
 
 .hero-full__sub {
   font-family: var(--lm-font-display);
@@ -480,6 +484,39 @@ section.lm-section:first-of-type { border-top: none; }
   min-height: 32px;
 }
 .hero-full__ghbtns .github-button { line-height: 1; }
+
+.since-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 14px 6px 10px;
+  background: var(--lm-bg-card);
+  border: 1.5px solid var(--lm-border-heavy);
+  font-family: var(--lm-font-mono);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--lm-ink-faint);
+  line-height: 1;
+}
+.since-pill__num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 28px;
+  padding: 5px 8px;
+  background: var(--lm-accent);
+  color: var(--lm-ink);
+  font-family: var(--lm-font-display);
+  font-size: 14px;
+  font-weight: 900;
+  letter-spacing: -0.01em;
+  line-height: 1;
+  border: 1.5px solid var(--lm-ink);
+}
+.since-pill__label { white-space: nowrap; color: var(--lm-ink); }
+.since-pill__label .faint { color: var(--lm-ink-faint); margin-left: 4px; }
 .hero-full__ctas .lm-btn {
   min-height: 48px;
   padding: 12px 22px;
@@ -927,7 +964,7 @@ footer.lm-footer .meta { color: var(--lm-ink-faint); text-transform: none; lette
     <h1 class="hero-full__brand">local<span class="a">&middot;</span>mem</h1>
 
     <p class="hero-full__sub">
-      your agent's memory &mdash; <span class="accent">written to a file you own</span>.
+      your agent's memory, <span class="accent">written to a file you own</span>.
     </p>
 
     <div class="hero-full__cmd">
@@ -953,6 +990,10 @@ footer.lm-footer .meta { color: var(--lm-ink-faint); text-transform: none; lette
       <a class="github-button" href="https://github.com/VJ-yadav/localmem-public" data-icon="octicon-star" data-size="large" data-show-count="true" aria-label="Star VJ-yadav/localmem-public on GitHub">Star</a>
       <a class="github-button" href="https://github.com/VJ-yadav/localmem-public/fork" data-icon="octicon-repo-forked" data-size="large" data-show-count="true" aria-label="Fork VJ-yadav/localmem-public on GitHub">Fork</a>
       <a class="github-button" href="https://github.com/VJ-yadav" data-size="large" data-show-count="true" aria-label="Follow @VJ-yadav on GitHub">Follow @VJ-yadav</a>
+      <span class="since-pill" title="Open-sourced 5 Jun 2026">
+        <span class="since-pill__num" id="since-days">1</span>
+        <span class="since-pill__label">days public <span class="faint">since 5 Jun 2026</span></span>
+      </span>
     </div>
   </div>
 </section>
@@ -1074,10 +1115,10 @@ $ rm -rf ~/.localmem/derived
 <span class="comment"># Rebuild everything from the event log alone</span>
 $ localmem replay
 
-<span class="comment"># Search again — same result, fully recomputed from events.jsonl</span>
+<span class="comment"># Search again, same result, fully recomputed from events.jsonl</span>
 $ localmem search "what language do I prefer"</pre>
       <p class="demo__punch">
-        <code>~/.localmem/events.jsonl</code> is the single source of truth. DuckDB, LanceDB, Tantivy &mdash; all recomputable caches.
+        <code>~/.localmem/events.jsonl</code> is the single source of truth. DuckDB, LanceDB, Tantivy. All recomputable caches.
       </p>
     </div>
   </section>
@@ -1217,16 +1258,16 @@ $ localmem search "what language do I prefer"</pre>
     </div>
   </section>
 
-  <!-- WHAT'S FREE -->
+  <!-- WHAT'S OPEN -->
   <section class="lm-section">
-    <div class="lm-eyebrow">/ Pricing</div>
-    <h2 class="lm-h2">Free, forever.</h2>
-    <p class="lm-h2-sub">The core binary, MCP server, event log schema, all importers &mdash; Apache-2.0. Your data lives in a folder you own. The OSS core never requires a network call.</p>
+    <div class="lm-eyebrow">/ License</div>
+    <h2 class="lm-h2">Apache-2.0.</h2>
+    <p class="lm-h2-sub">The Rust core, the MCP server, the event-log schema, and every importer are Apache-2.0. Your data sits in <code>~/.localmem/</code>. The OSS core never makes a network call to complete a memory op.</p>
 
-    <p style="font-size: 18px; font-weight: 700; color: var(--lm-ink); margin-top: 8px;">Zero content telemetry, ever.</p>
+    <p style="font-size: 18px; font-weight: 700; color: var(--lm-ink); margin-top: 8px;">Your content does not leave your machine. There is no path in which it does.</p>
 
     <div class="callout">
-      <strong>v0.2.0 release status:</strong> prebuilt binary ships for macOS Apple Silicon. Intel Mac, Linux x86_64, and Linux aarch64 work today by building from source. Cross-compiled binaries for everything except Windows ship in v0.2.1.
+      <strong>v0.2.0 status.</strong> Prebuilt binary ships for macOS Apple Silicon. Intel Mac, Linux x86_64, and Linux aarch64 build cleanly from source today. Cross-compiled binaries for the rest land in v0.2.1.
     </div>
   </section>
 
@@ -1264,7 +1305,20 @@ function copyInstall(btn) {
   var text = pre.innerText.replace(/^copy\n/, '').replace(/^\$ /gm, '');
   copyText(btn, text);
 }
-// (legacy api.github.com poll removed — real github buttons widget below handles star count + auth)
+// (legacy api.github.com poll removed; real GitHub buttons widget below handles star count + auth)
+
+(function daysPublic() {
+  var el = document.getElementById('since-days');
+  if (!el) return;
+  var launchUTC = Date.UTC(2026, 5, 5);
+  var nowUTC = Date.UTC(
+    new Date().getUTCFullYear(),
+    new Date().getUTCMonth(),
+    new Date().getUTCDate()
+  );
+  var days = Math.floor((nowUTC - launchUTC) / 86400000) + 1;
+  el.textContent = days < 1 ? 1 : days;
+})();
 </script>
 <script async defer src="https://buttons.github.io/buttons.js"></script>
 </body>

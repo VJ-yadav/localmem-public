@@ -20,7 +20,7 @@
     <span id="version-pill" class="pill pill-muted" hidden></span>
   </div>
   <div class="search">
-    <input id="search-input" type="search" placeholder="Search memories &mdash; press Enter">
+    <input id="search-input" type="search" placeholder="Search memories. Press Enter.">
   </div>
 </header>
 
@@ -83,11 +83,11 @@
 
 <footer class="footer">
   <div class="footer-stats">
-    <span id="stat-subjects" class="stat">&mdash; subjects</span>
+    <span id="stat-subjects" class="stat">0 subjects</span>
     <span class="stat-sep">&middot;</span>
-    <span id="stat-tags" class="stat">&mdash; tags</span>
+    <span id="stat-tags" class="stat">0 tags</span>
     <span class="stat-sep">&middot;</span>
-    <span id="stat-recent" class="stat">&mdash; recent</span>
+    <span id="stat-recent" class="stat">0 recent</span>
   </div>
   <div class="footer-meta">
     <span id="endpoint-label" class="muted">connected to <code>http://127.0.0.1:7788</code></span>
@@ -106,7 +106,7 @@
   <h3>Most likely fixes</h3>
   <ol>
     <li><strong>Is the <code>localmem</code> binary installed?</strong> <code>which localmem</code> should print a path. If not, install via <code>curl -fsSL https://localmem.org/install | sh</code>.</li>
-    <li><strong>Was the binary started by this dashboard?</strong> If you started <code>localmem serve</code> yourself in a separate terminal, that's fine — but stop the duplicate before retrying.</li>
+    <li><strong>Was the binary started by this dashboard?</strong> If you started <code>localmem serve</code> yourself in a separate terminal, that's fine. Stop the duplicate before retrying.</li>
     <li><strong>Restart the dashboard.</strong> Ctrl-C the <code>python3 dashboard/serve.py</code> process and restart it. It will spawn a fresh <code>localmem serve</code> subprocess.</li>
   </ol>
   <p class="hint">The dashboard supervises a single <code>localmem serve</code> process. Switching stores via the Stores panel kills + restarts that subprocess; the brief disconnect during a switch is normal.</p>
