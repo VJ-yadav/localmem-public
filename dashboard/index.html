@@ -25,11 +25,18 @@
 </header>
 
 <main class="grid">
-  <!-- LEFT: subjects + tags -->
+  <!-- LEFT: stores + subjects + tags -->
   <aside class="panel">
     <section>
+      <h2>Stores</h2>
+      <p class="hint">All <code>.localmem</code> directories on this machine. <span class="active-marker">active</span> is the one this dashboard is reading.</p>
+      <ul id="stores-list" class="counted-list">
+        <li class="empty">loading&hellip;</li>
+      </ul>
+    </section>
+    <section>
       <h2>Subjects</h2>
-      <p class="hint">Entities your memory knows about. Click to recall.</p>
+      <p class="hint">Entities the active store knows about. Click to recall.</p>
       <ul id="subjects-list" class="counted-list">
         <li class="empty">loading&hellip;</li>
       </ul>

@@ -31,21 +31,46 @@ Leave that running. The dashboard talks to it at the default `http://127.0.0.1:7
 python3 dashboard/serve.py
 ```
 
-This does **two** things in a single process:
+This does **three** things in a single process:
 1. Serves the dashboard static files on `http://localhost:8088/`
 2. Forwards `/api/*` requests to the localmem core at `http://127.0.0.1:7788`
+3. Exposes `/__meta/stores` so the dashboard can discover every `.localmem/` directory on this machine
 
 Because the dashboard and the API now share the same origin (your localhost:8088), the browser does not block fetches. **No CORS issues.**
 
-The script auto-opens your default browser to `http://localhost:8088/?api=/api`. Set `DASHBOARD_NO_BROWSER=1` to skip the auto-open. Other env vars:
+The script auto-opens your default browser to `http://localhost:8088/?api=/api`. Set `DASHBOARD_NO_BROWSER=1` to skip the auto-open.
 
 | Var | Default | Purpose |
 |---|---|---|
 | `DASHBOARD_PORT` | `8088` | Where to serve the UI |
 | `LOCALMEM_CORE_URL` | `http://127.0.0.1:7788` | Where the localmem core is running |
 | `DASHBOARD_NO_BROWSER` | unset | If set to `1`, do not auto-open the browser |
+| `LOCALMEM_DASHBOARD_STORES` | unset | Colon-separated list of `.localmem` paths to surface explicitly |
+| `LOCALMEM_DASHBOARD_SCAN` | unset | Colon-separated list of root dirs to scan one level deep for `.localmem/` subdirs |
+
+`~/.localmem` is always listed. Use the env vars to surface per-project stores too:
+
+```bash
+# Example: scan ~/DATA_LAB for project stores
+LOCALMEM_DASHBOARD_SCAN="$HOME/DATA_LAB" python3 dashboard/serve.py
+```
 
 Stop with Ctrl-C.
+
+### Switching the active store
+
+The dashboard lists every `.localmem/` it can discover in the left "Stores" panel. The one currently being served by `localmem serve` is marked `active`. Click any other store — its `localmem serve --home <path>` command is copied to your clipboard.
+
+To switch the active store, stop the current core and start a new one:
+
+```bash
+# Ctrl-C the running `localmem serve`, then:
+localmem serve --home /Users/you/DATA_LAB/simplestub/.localmem
+```
+
+Then refresh the dashboard. The active marker moves; subjects + tags + recent now show that store's data.
+
+A future `localmem serve --dashboard` (planned) will accept multiple `--home` flags and let the dashboard switch live without restart.
 
 ### Why a helper script and not just open the HTML directly
 

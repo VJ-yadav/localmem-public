@@ -87,6 +87,79 @@ async function checkConnection() {
 let activeSubject = null;
 let activeTag = null;
 
+// ---- Stores (sidebar — multi-store discovery via /__meta/stores) -----------
+
+function showToast(msg, ms = 2200) {
+  let el = document.getElementById("__toast");
+  if (!el) {
+    el = document.createElement("div");
+    el.id = "__toast";
+    el.className = "toast";
+    document.body.appendChild(el);
+  }
+  el.textContent = msg;
+  el.classList.add("show");
+  clearTimeout(showToast._t);
+  showToast._t = setTimeout(() => el.classList.remove("show"), ms);
+}
+
+function formatBytes(n) {
+  if (!n && n !== 0) return "";
+  if (n < 1024) return `${n}B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)}KB`;
+  return `${(n / (1024 * 1024)).toFixed(1)}MB`;
+}
+
+function timeAgoFromEpoch(secs) {
+  if (!secs) return "";
+  const diff = Math.max(0, Date.now() / 1000 - secs);
+  if (diff < 60) return `${Math.floor(diff)}s ago`;
+  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+  return `${Math.floor(diff / 86400)}d ago`;
+}
+
+async function loadStores() {
+  try {
+    // /__meta/stores is served by the local proxy (serve.py), not the
+    // localmem core. It scans the filesystem to enumerate .localmem dirs.
+    const res = await fetch("/__meta/stores");
+    if (!res.ok) throw new Error(`/__meta/stores ${res.status}`);
+    const data = await res.json();
+    const stores = data.stores || [];
+    const activeGuess = data.active_guess || "";
+    const list = $("stores-list");
+    if (stores.length === 0) {
+      list.innerHTML = `<li class="empty">no <code>.localmem</code> dirs discovered. Set <code>LOCALMEM_DASHBOARD_SCAN</code> when starting <code>serve.py</code>.</li>`;
+      return;
+    }
+    list.innerHTML = stores.map(s => {
+      const isActive = s.path === activeGuess;
+      const cmd = `localmem serve --home ${s.path}`;
+      return `<li class="store-row ${isActive ? "active" : ""}" data-path="${escapeHtml(s.path)}" data-cmd="${escapeHtml(cmd)}">
+        <div class="store-top">
+          <span class="store-label">${escapeHtml(s.label || "store")} ${isActive ? "<span class=\"active-marker\">active</span>" : ""}</span>
+          <span class="store-meta">${s.events} events</span>
+        </div>
+        <div class="store-path" title="${escapeHtml(s.path)}">${escapeHtml(s.path)}</div>
+        <div class="store-meta">${formatBytes(s.size_bytes)} &middot; ${timeAgoFromEpoch(s.last_modified)}</div>
+      </li>`;
+    }).join("");
+    list.querySelectorAll(".store-row").forEach(li => {
+      li.addEventListener("click", () => {
+        const cmd = li.dataset.cmd;
+        navigator.clipboard.writeText(cmd).then(
+          () => showToast("Copied. Paste in terminal: " + cmd, 3000),
+          () => showToast("Copy failed; cmd is in console", 2500)
+        );
+        console.log("[localmem] to switch active store, run:", cmd);
+      });
+    });
+  } catch (err) {
+    $("stores-list").innerHTML = `<li class="empty">no proxy /__meta/stores endpoint. Start the dashboard via <code>python3 serve.py</code>.</li>`;
+  }
+}
+
 async function loadSubjects() {
   try {
     const data = await api("/resource/subjects");
@@ -297,6 +370,11 @@ async function loadProfile() {
 // ---- Wire-up --------------------------------------------------------------
 
 document.addEventListener("DOMContentLoaded", async () => {
+  // Stores discovery doesn't need the core to be reachable; load it
+  // independently so the user still sees the list even when the active
+  // core is down.
+  loadStores();
+
   const ok = await checkConnection();
   if (!ok) return;
   await Promise.all([loadSubjects(), loadTags(), loadRecent()]);
@@ -309,9 +387,9 @@ document.addEventListener("DOMContentLoaded", async () => {
     }
   });
 
-  // Refresh button
+  // Refresh button — refresh the active core's data + the stores list
   $("refresh-btn").addEventListener("click", async () => {
-    await Promise.all([loadSubjects(), loadTags(), loadRecent()]);
+    await Promise.all([loadStores(), loadSubjects(), loadTags(), loadRecent()]);
   });
 
   // Clear tag filter
