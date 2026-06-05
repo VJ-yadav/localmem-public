@@ -3,7 +3,7 @@
 ## TL;DR
 
 ```sh
-curl -fsSL https://github.com/VJ-yadav/localmem-public/releases/latest/download/install.sh | sh
+curl -fsSL https://localmem.org/install | sh
 ```
 
 That command downloads the right release binary for your OS and CPU,
@@ -30,7 +30,7 @@ service.
 If you don't want to pipe curl to a shell, download and read first:
 
 ```sh
-curl -fsSL https://github.com/VJ-yadav/localmem-public/releases/latest/download/install.sh -o install.sh
+curl -fsSL https://localmem.org/install -o install.sh
 less install.sh                # read what you are about to run
 sh install.sh
 ```
@@ -48,13 +48,13 @@ curl -fsSL https://github.com/VJ-yadav/localmem-public/releases/download/v0.2.0/
 Or via env var:
 
 ```sh
-LOCALMEM_VERSION=v0.2.0 curl -fsSL https://github.com/VJ-yadav/localmem-public/releases/latest/download/install.sh | sh
+LOCALMEM_VERSION=v0.2.0 curl -fsSL https://localmem.org/install | sh
 ```
 
 ## Custom install directory
 
 ```sh
-LOCALMEM_INSTALL_DIR="$HOME/bin" curl -fsSL https://github.com/VJ-yadav/localmem-public/releases/latest/download/install.sh | sh
+LOCALMEM_INSTALL_DIR="$HOME/bin" curl -fsSL https://localmem.org/install | sh
 ```
 
 ## Supported platforms (v0.2.0)
@@ -77,7 +77,7 @@ Re-run the install command. It is idempotent and a no-op if the same
 version is already present.
 
 ```sh
-curl -fsSL https://github.com/VJ-yadav/localmem-public/releases/latest/download/install.sh | sh
+curl -fsSL https://localmem.org/install | sh
 ```
 
 To downgrade or pin, use `--version` as shown above.

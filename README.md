@@ -45,7 +45,7 @@
 
 ```bash
 # 1. Install the Rust core binary
-curl -fsSL https://github.com/VJ-yadav/localmem-public/releases/latest/download/install.sh | sh
+curl -fsSL https://localmem.org/install | sh
 
 # 2. Initialize + fetch the embedding model (~44 MB)
 localmem init && localmem fetch-model

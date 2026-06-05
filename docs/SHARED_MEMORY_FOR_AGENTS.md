@@ -66,7 +66,7 @@ re-explaining.
 ### Step 1 — Install localmem (once per machine)
 
 ```bash
-curl -fsSL https://github.com/VJ-yadav/localmem-public/releases/latest/download/install.sh | sh
+curl -fsSL https://localmem.org/install | sh
 localmem init
 localmem fetch-model   # ~44 MB download for semantic search
 localmem doctor        # confirm everything's healthy
@@ -288,7 +288,7 @@ Full rationale: [MEMORY_TIERS.md](MEMORY_TIERS.md).
 
 ## TL;DR — the 60-second version to send your colleague
 
-> 1. `curl -fsSL https://github.com/VJ-yadav/localmem-public/releases/latest/download/install.sh | sh`
+> 1. `curl -fsSL https://localmem.org/install | sh`
 > 2. `localmem init && localmem fetch-model && localmem serve &`
 > 3. `localmem mcp install --client <claude|cursor|cline|windsurf|claude-code>` for each agent
 > 4. Restart the AI clients.

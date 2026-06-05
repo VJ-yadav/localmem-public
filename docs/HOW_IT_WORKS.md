@@ -94,7 +94,7 @@ per-kind recency decay. You can also request a single mode (`--mode lex`,
 ### macOS + Linux (one-line)
 
 ```bash
-curl -fsSL https://github.com/VJ-yadav/localmem-public/releases/latest/download/install.sh | sh
+curl -fsSL https://localmem.org/install | sh
 ```
 
 This script:

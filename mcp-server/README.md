@@ -12,7 +12,7 @@ derived stores; this package just speaks MCP and forwards calls.
 
 ```bash
 # 1. Install the Rust core (one-time per machine)
-curl -fsSL https://github.com/VJ-yadav/localmem-public/releases/latest/download/install.sh | sh
+curl -fsSL https://localmem.org/install | sh
 localmem init
 localmem fetch-model   # downloads BGE-small (~44 MB) for semantic search
 
