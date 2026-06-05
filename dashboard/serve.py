@@ -96,7 +96,7 @@ class CoreSupervisor:
                 return True, "already running"
             return self._spawn_locked(self.home)
 
-    def _spawn_locked(self, home: Path) -> tuple[bool, str]:
+    def _spawn_locked(self, home: Path, auto_heal: bool = True) -> tuple[bool, str]:
         # Pre-existing core on the same port? Don't double-bind.
         if _is_core_reachable():
             log(f"core already reachable at {CORE_URL} — attaching, not spawning")
@@ -110,6 +110,28 @@ class CoreSupervisor:
         if not _wait_for_port_free(CORE_ADDR, timeout=5.0):
             log(f"port {CORE_ADDR} still in use after wait; will try anyway")
 
+        ok, msg = self._spawn_once(home)
+        if ok:
+            return True, msg
+
+        # Auto-heal: T-81 made the core report stale lexical schema as
+        # an actionable error. If we see that, run `localmem replay`
+        # on the home and retry the spawn. This eliminates the common
+        # "old project home created before v0.2" failure mode.
+        if auto_heal and _is_stale_schema_error(msg):
+            log(f"stale schema detected; running 'localmem replay --home {home}' to auto-heal")
+            healed = self._run_replay(home)
+            if healed:
+                log("replay succeeded; retrying spawn")
+                ok2, msg2 = self._spawn_once(home)
+                if ok2:
+                    return True, f"{msg2} (auto-healed stale schema)"
+                return False, f"replay succeeded but second spawn failed: {msg2}"
+            return False, f"stale schema + auto-replay failed. Original: {msg}"
+
+        return False, msg
+
+    def _spawn_once(self, home: Path) -> tuple[bool, str]:
         cmd = [str(LOCALMEM_BIN), "serve", "--home", str(home), "--addr", CORE_ADDR]
         log(f"spawning: {' '.join(shlex.quote(a) for a in cmd)}")
         # Capture stderr to a temp file so the user sees the real error
@@ -143,8 +165,30 @@ class CoreSupervisor:
         # include it in the error so the dashboard can show the user.
         self._stop_locked()
         last = _tail_stderr_log(getattr(self, "_stderr_log", None))
-        snippet = ("; ".join(last[-3:]) or "no stderr").strip()
-        return False, f"core did not become healthy in {timeout:.0f}s. stderr tail: {snippet}"
+        snippet = ("\n".join(last[-6:]) or "no stderr").strip()
+        return False, f"core did not become healthy in {timeout:.0f}s. stderr:\n{snippet}"
+
+    def _run_replay(self, home: Path) -> bool:
+        """Run `localmem replay --home <H>` synchronously; return True on success."""
+        cmd = [str(LOCALMEM_BIN), "replay", "--home", str(home)]
+        try:
+            res = subprocess.run(
+                cmd,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
+                timeout=120.0,
+            )
+            if res.returncode != 0:
+                tail = res.stderr.decode("utf-8", errors="replace").strip().splitlines()[-3:]
+                log(f"replay failed (exit {res.returncode}): {' / '.join(tail)}")
+                return False
+            return True
+        except subprocess.TimeoutExpired:
+            log("replay timed out after 120s")
+            return False
+        except Exception as e:
+            log(f"replay exception: {e}")
+            return False
 
     def switch(self, new_home: Path) -> tuple[bool, str]:
         new_home = Path(new_home).expanduser()
@@ -217,6 +261,14 @@ def _wait_for_port_free(addr: str, timeout: float) -> bool:
             try: s.close()
             except: pass
     return False
+
+
+def _is_stale_schema_error(msg: str) -> bool:
+    """T-81's actionable drift message is the trigger for auto-replay."""
+    if not msg:
+        return False
+    low = msg.lower()
+    return ("schema is stale" in low) or ("schema does not match" in low) or ("run: localmem replay" in low)
 
 
 def _tail_stderr_log(handle, n_lines: int = 60) -> list[str]:
