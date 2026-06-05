@@ -100,17 +100,18 @@
 
 <!-- Modal for errors / setup help -->
 <dialog id="help-dialog" class="dialog">
-  <h2>Can't reach the localmem core</h2>
-  <p>The dashboard talks to your running <code>localmem serve</code> at <code id="help-endpoint">http://127.0.0.1:7788</code>. It looks like that's not reachable right now.</p>
-  <h3>Three things to check</h3>
+  <h2>Core is not reachable right now</h2>
+  <p>The dashboard's proxy is up, but the supervised <code>localmem serve</code> subprocess isn't responding at <code id="help-endpoint">/api</code>.</p>
+  <p>Usually this means the core died after a store-switch failed, or the <code>localmem</code> binary isn't on your PATH.</p>
+  <h3>Most likely fixes</h3>
   <ol>
-    <li><strong>Is the core running?</strong> Open a terminal and run <code>localmem serve</code>. Leave it open. Then refresh this page.</li>
-    <li><strong>Are you opening this from <code>file://</code> or a non-localhost URL?</strong> Browser CORS rules block fetches across origins. Fix: serve this directory from localhost too. From the <code>dashboard/</code> directory: <code>python3 -m http.server 8080</code>, then open <code>http://localhost:8080/</code>.</li>
-    <li><strong>Different port?</strong> If your <code>localmem serve --addr</code> uses a non-default port, set the endpoint in the URL: <code>?api=http://127.0.0.1:9999</code>.</li>
+    <li><strong>Is the <code>localmem</code> binary installed?</strong> <code>which localmem</code> should print a path. If not, install via <code>curl -fsSL https://localmem.org/install | sh</code>.</li>
+    <li><strong>Was the binary started by this dashboard?</strong> If you started <code>localmem serve</code> yourself in a separate terminal, that's fine — but stop the duplicate before retrying.</li>
+    <li><strong>Restart the dashboard.</strong> Ctrl-C the <code>python3 dashboard/serve.py</code> process and restart it. It will spawn a fresh <code>localmem serve</code> subprocess.</li>
   </ol>
-  <p class="hint">A future <code>localmem serve --dashboard</code> will serve this UI on the same port as the core API, no CORS issues. Tracked for v0.2.1.</p>
+  <p class="hint">The dashboard supervises a single <code>localmem serve</code> process. Switching stores via the Stores panel kills + restarts that subprocess; the brief disconnect during a switch is normal.</p>
   <form method="dialog">
-    <button class="btn">close</button>
+    <button class="btn btn-primary">close</button>
   </form>
 </dialog>
 

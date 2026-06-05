@@ -1,48 +1,73 @@
 #!/usr/bin/env python3
 """
-dashboard/serve.py — one-shot helper to view the localmem dashboard.
+dashboard/serve.py — supervisor + proxy for the localmem dashboard.
 
-Serves dashboard/ as static files on http://localhost:8088/ and
-transparently forwards /api/* to the running localmem core (default
-http://127.0.0.1:7788). Same origin to the browser, no CORS.
+Manages a single `localmem serve` subprocess and a static-files +
+reverse-proxy HTTP server in one process. Adds /__meta routes so the
+dashboard can discover all .localmem stores on the machine and
+*live-switch* the active one (kills + restarts the core subprocess
+behind the scenes).
 
-Plus a tiny meta endpoint at /__meta/stores that scans the filesystem
-for .localmem/ directories so the dashboard can show every store you
-have on this machine, not just the one localmem serve is currently
-pointed at.
+Routes served by this process:
+    GET  /                       static files from dashboard/
+    GET  /__meta/stores          list of .localmem dirs on this machine
+    GET  /__meta/active          which home the supervised core is on
+    POST /__meta/switch          body {home: "..."}, swap active home
+    GET  /api/<path>             reverse-proxy to the localmem core
+    POST /api/<path>             reverse-proxy to the localmem core
+
+Why this design (vs. Rust `localmem serve --dashboard`):
+- Zero Rust changes => no rebuild, no release cut.
+- Live switching is "stop subprocess; start subprocess" — bounded by
+  the core's startup time (~1s).
+- The same UX (one-command dashboard) ports cleanly to a future
+  Rust-native dashboard server when that's prioritized.
 
 Usage:
     python3 dashboard/serve.py
     # then open http://localhost:8088/?api=/api
 
 Env vars:
-    DASHBOARD_PORT             default 8088
-    LOCALMEM_CORE_URL          default http://127.0.0.1:7788
+    LOCALMEM_BIN               default: localmem on PATH (override with
+                               an absolute path to the binary)
+    LOCALMEM_DEFAULT_HOME      default: ~/.localmem
+    LOCALMEM_CORE_ADDR         default: 127.0.0.1:7788
+    DASHBOARD_PORT             default: 8088
     DASHBOARD_NO_BROWSER       set to 1 to skip the auto-open
-    LOCALMEM_DASHBOARD_STORES  colon-separated list of .localmem dirs to
-                               surface explicitly (e.g. "$HOME/.localmem:
-                               $HOME/projects/foo/.localmem")
-    LOCALMEM_DASHBOARD_SCAN    colon-separated list of root dirs to scan
-                               for .localmem subdirs (one level deep,
-                               e.g. "$HOME/DATA_LAB"). $HOME is always
-                               scanned at depth 0 for ~/.localmem.
+    LOCALMEM_DASHBOARD_STORES  colon-separated list of .localmem dirs
+                               to surface explicitly
+    LOCALMEM_DASHBOARD_SCAN    colon-separated roots to scan one level
+                               deep for .localmem subdirs
 
 Stop with Ctrl-C.
 """
 
+from __future__ import annotations
+
 import http.server
 import json
 import os
+import shlex
+import shutil
+import signal
 import socketserver
+import subprocess
 import sys
+import threading
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
 import webbrowser
 from pathlib import Path
 
+# ---- Config ----------------------------------------------------------------
+
 PORT = int(os.environ.get("DASHBOARD_PORT", "8088"))
-CORE_URL = os.environ.get("LOCALMEM_CORE_URL", "http://127.0.0.1:7788").rstrip("/")
+CORE_ADDR = os.environ.get("LOCALMEM_CORE_ADDR", "127.0.0.1:7788")
+CORE_URL = f"http://{CORE_ADDR}"
+LOCALMEM_BIN = os.environ.get("LOCALMEM_BIN") or shutil.which("localmem") or "localmem"
+DEFAULT_HOME = Path(os.environ.get("LOCALMEM_DEFAULT_HOME") or Path.home() / ".localmem").expanduser()
 NO_BROWSER = os.environ.get("DASHBOARD_NO_BROWSER", "").lower() in ("1", "true", "yes")
 EXPLICIT_STORES = os.environ.get("LOCALMEM_DASHBOARD_STORES", "")
 SCAN_ROOTS = os.environ.get("LOCALMEM_DASHBOARD_SCAN", "")
@@ -50,9 +75,171 @@ SCAN_ROOTS = os.environ.get("LOCALMEM_DASHBOARD_SCAN", "")
 DASHBOARD_DIR = Path(__file__).resolve().parent
 HOME = Path.home()
 
+# ---- Core subprocess supervisor -------------------------------------------
+
+class CoreSupervisor:
+    """
+    Owns a single `localmem serve --home <H> --addr <ADDR>` subprocess.
+
+    Thread-safety: switch() acquires a lock so two concurrent dashboard
+    requests can't race a restart. Health probing is best-effort.
+    """
+
+    def __init__(self, home: Path):
+        self.home = Path(home).expanduser().resolve()
+        self.proc: subprocess.Popen | None = None
+        self._lock = threading.Lock()
+
+    def start(self) -> tuple[bool, str]:
+        with self._lock:
+            if self.proc and self.proc.poll() is None:
+                return True, "already running"
+            return self._spawn_locked(self.home)
+
+    def _spawn_locked(self, home: Path) -> tuple[bool, str]:
+        # Pre-existing core on the same port? Don't double-bind.
+        if _is_core_reachable():
+            log(f"core already reachable at {CORE_URL} — attaching, not spawning")
+            self.proc = None
+            self.home = home
+            return True, "attached to existing core (home unverified)"
+
+        # Wait for the port to be free if a previous core just exited.
+        # macOS holds TCP sockets briefly post-close; this keeps the new
+        # bind() from failing with EADDRINUSE.
+        if not _wait_for_port_free(CORE_ADDR, timeout=5.0):
+            log(f"port {CORE_ADDR} still in use after wait; will try anyway")
+
+        cmd = [str(LOCALMEM_BIN), "serve", "--home", str(home), "--addr", CORE_ADDR]
+        log(f"spawning: {' '.join(shlex.quote(a) for a in cmd)}")
+        # Capture stderr to a temp file so the user sees the real error
+        # if the core dies before it becomes healthy. Without this we
+        # only know "it didn't come up in time," not WHY.
+        import tempfile
+        self._stderr_log = tempfile.NamedTemporaryFile(
+            prefix="localmem-core-stderr-", suffix=".log", delete=False, mode="wb",
+        )
+        try:
+            self.proc = subprocess.Popen(
+                cmd,
+                stdout=subprocess.DEVNULL,
+                stderr=self._stderr_log,
+                start_new_session=True,
+            )
+        except FileNotFoundError:
+            return False, f"localmem binary not found at: {LOCALMEM_BIN}"
+        except Exception as e:
+            return False, f"spawn failed: {e}"
+
+        # Poll /health for up to 30 seconds. Cold release builds with LTO
+        # can take ~5-10s to bind, and a back-to-back start after a stop
+        # may be slower (Tantivy + LanceDB initialization).
+        timeout = 30.0
+        if _wait_for_core(timeout=timeout):
+            self.home = home
+            return True, f"core up on {CORE_URL} (home={home})"
+
+        # It never came up. Capture whatever the subprocess wrote and
+        # include it in the error so the dashboard can show the user.
+        self._stop_locked()
+        last = _tail_stderr_log(getattr(self, "_stderr_log", None))
+        snippet = ("; ".join(last[-3:]) or "no stderr").strip()
+        return False, f"core did not become healthy in {timeout:.0f}s. stderr tail: {snippet}"
+
+    def switch(self, new_home: Path) -> tuple[bool, str]:
+        new_home = Path(new_home).expanduser()
+        if not new_home.is_dir():
+            return False, f"not a directory: {new_home}"
+        if not (new_home / "events.jsonl").exists():
+            return False, f"no events.jsonl at {new_home} (run `localmem init` first)"
+        new_home = new_home.resolve()
+
+        with self._lock:
+            if new_home == self.home and self.proc and self.proc.poll() is None:
+                return True, f"already on {new_home}"
+            log(f"switch: {self.home} -> {new_home}")
+            self._stop_locked()
+            return self._spawn_locked(new_home)
+
+    def _stop_locked(self):
+        if not self.proc:
+            return
+        try:
+            self.proc.terminate()
+            try:
+                self.proc.wait(timeout=5.0)
+            except subprocess.TimeoutExpired:
+                log("core didn't stop in 5s, sending SIGKILL")
+                self.proc.kill()
+                self.proc.wait(timeout=2.0)
+        except Exception as e:
+            log(f"stop error (ignoring): {e}")
+        self.proc = None
+
+    def stop(self):
+        with self._lock:
+            self._stop_locked()
+
+
+def _is_core_reachable() -> bool:
+    try:
+        with urllib.request.urlopen(f"{CORE_URL}/health", timeout=0.4) as r:
+            return r.status == 200
+    except Exception:
+        return False
+
+
+def _wait_for_core(timeout: float) -> bool:
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if _is_core_reachable():
+            return True
+        time.sleep(0.2)
+    return False
+
+
+def _wait_for_port_free(addr: str, timeout: float) -> bool:
+    """Poll until TCP bind would succeed on addr. Returns True if free."""
+    import socket
+    host, port = addr.split(":", 1)
+    port = int(port)
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        try:
+            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            s.bind((host, port))
+            s.close()
+            return True
+        except OSError:
+            time.sleep(0.2)
+        finally:
+            try: s.close()
+            except: pass
+    return False
+
+
+def _tail_stderr_log(handle, n_lines: int = 60) -> list[str]:
+    """Read the last N lines of a tempfile we wrote subprocess stderr into."""
+    if not handle:
+        return []
+    try:
+        handle.flush()
+        with open(handle.name, "rb") as f:
+            raw = f.read()
+        return [line for line in raw.decode("utf-8", errors="replace").splitlines() if line.strip()][-n_lines:]
+    except Exception:
+        return []
+
+
+def log(msg: str):
+    sys.stderr.write(f"[dashboard] {msg}\n")
+    sys.stderr.flush()
+
+
+# ---- Store discovery ------------------------------------------------------
 
 def candidate_stores() -> list[Path]:
-    """All paths to consider as .localmem stores, deduped + sorted."""
     seen: set[Path] = set()
     out: list[Path] = []
 
@@ -66,17 +253,14 @@ def candidate_stores() -> list[Path]:
         seen.add(r)
         out.append(r)
 
-    # Always include the user's global home
     add(HOME / ".localmem")
 
-    # Explicit stores from env
     for raw in EXPLICIT_STORES.split(":"):
         raw = raw.strip()
         if raw:
             add(Path(raw).expanduser())
 
-    # Scan roots — find .localmem dirs one level deep
-    scan_paths = [HOME]  # always shallow-scan $HOME (no-op since we add ~/.localmem above)
+    scan_paths: list[Path] = []
     for raw in SCAN_ROOTS.split(":"):
         raw = raw.strip()
         if raw:
@@ -99,7 +283,6 @@ def candidate_stores() -> list[Path]:
 
 
 def store_metadata(path: Path) -> dict:
-    """Best-effort metadata: line counts, last modified, label."""
     events = path / "events.jsonl"
     meta: dict = {
         "path": str(path),
@@ -115,7 +298,6 @@ def store_metadata(path: Path) -> dict:
         stat = events.stat()
         meta["size_bytes"] = stat.st_size
         meta["last_modified"] = stat.st_mtime
-        # Cheap line count: events are JSONL, one event per line.
         with events.open("rb") as f:
             meta["events"] = sum(1 for _ in f)
     except Exception as exc:
@@ -124,7 +306,6 @@ def store_metadata(path: Path) -> dict:
 
 
 def _label_for(path: Path) -> str:
-    """Human-readable label. ~/.localmem -> 'global'; else parent-dir name."""
     try:
         if path.resolve() == (HOME / ".localmem").resolve():
             return "global (~/.localmem)"
@@ -134,23 +315,9 @@ def _label_for(path: Path) -> str:
     return parent
 
 
-def stores_payload() -> dict:
-    stores = []
-    for s in candidate_stores():
-        meta = store_metadata(s)
-        if meta["exists"]:
-            stores.append(meta)
-    # Mark which store is the currently-served one by comparing
-    # CORE_URL's home (we cannot ask the core for this without a route).
-    # As a heuristic, the running core's home is typically ~/.localmem
-    # unless launched with --home; the dashboard surfaces the heuristic
-    # so the user can correct it if wrong.
-    return {
-        "ok": True,
-        "stores": stores,
-        "active_core": CORE_URL,
-        "active_guess": str((HOME / ".localmem").resolve()),
-    }
+# ---- HTTP handler ----------------------------------------------------------
+
+SUPERVISOR: CoreSupervisor  # set in main()
 
 
 class Handler(http.server.SimpleHTTPRequestHandler):
@@ -159,7 +326,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 
     def do_GET(self):
         if self.path.startswith("/__meta/"):
-            self._handle_meta()
+            self._handle_meta_get()
             return
         if self.path.startswith("/api/"):
             self._proxy("GET")
@@ -167,10 +334,13 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         super().do_GET()
 
     def do_POST(self):
+        if self.path.startswith("/__meta/"):
+            self._handle_meta_post()
+            return
         if self.path.startswith("/api/"):
             self._proxy("POST")
             return
-        self.send_error(405, "POST only supported on /api/*")
+        self.send_error(405, "POST only supported on /api/* and /__meta/*")
 
     def do_OPTIONS(self):
         if self.path.startswith("/api/") or self.path.startswith("/__meta/"):
@@ -182,24 +352,69 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             return
         self.send_error(405)
 
-    def _handle_meta(self):
-        # Strip query string for routing
+    # ---- /__meta/* -------------------------------------------------------
+
+    def _handle_meta_get(self):
         path = self.path.split("?", 1)[0]
         if path == "/__meta/stores":
-            body = json.dumps(stores_payload()).encode()
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json")
-            self.send_header("Content-Length", str(len(body)))
-            self.end_headers()
-            self.wfile.write(body)
-            return
+            return self._send_json(200, self._stores_payload())
+        if path == "/__meta/active":
+            return self._send_json(200, {
+                "ok": True,
+                "active_home": str(SUPERVISOR.home),
+                "core_url": CORE_URL,
+                "managed": SUPERVISOR.proc is not None,
+            })
         self.send_error(404, f"unknown meta route: {path}")
 
-    def _proxy(self, method):
+    def _handle_meta_post(self):
+        path = self.path.split("?", 1)[0]
+        if path == "/__meta/switch":
+            length = int(self.headers.get("Content-Length") or 0)
+            raw = self.rfile.read(length) if length else b""
+            try:
+                body = json.loads(raw or b"{}")
+            except json.JSONDecodeError:
+                return self._send_json(400, {"ok": False, "error": "invalid JSON body"})
+            home = body.get("home")
+            if not home:
+                return self._send_json(400, {"ok": False, "error": "missing 'home' field"})
+            ok, msg = SUPERVISOR.switch(Path(home))
+            return self._send_json(200 if ok else 502, {
+                "ok": ok,
+                "message": msg,
+                "active_home": str(SUPERVISOR.home),
+            })
+        self.send_error(404, f"unknown meta route: {path}")
+
+    def _stores_payload(self) -> dict:
+        stores = []
+        for s in candidate_stores():
+            meta = store_metadata(s)
+            if meta["exists"]:
+                stores.append(meta)
+        return {
+            "ok": True,
+            "stores": stores,
+            "active_core": CORE_URL,
+            "active_home": str(SUPERVISOR.home),
+        }
+
+    def _send_json(self, status: int, payload: dict):
+        body = json.dumps(payload).encode()
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    # ---- /api/* proxy ----------------------------------------------------
+
+    def _proxy(self, method: str):
         upstream_path = self.path[len("/api"):] or "/"
         upstream_url = f"{CORE_URL}{upstream_path}"
         body = None
-        headers = {}
+        headers: dict[str, str] = {}
         if method == "POST":
             length = int(self.headers.get("Content-Length") or 0)
             body = self.rfile.read(length) if length else b""
@@ -227,38 +442,61 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             self.end_headers()
             msg = (
                 f'{{"ok":false,"error":{{"code":"core_unreachable",'
-                f'"message":"could not reach localmem core at {CORE_URL}. '
-                f'Run \\"localmem serve\\" and try again."}}}}'
+                f'"message":"localmem core unreachable at {CORE_URL}. '
+                f'It may be restarting after a store-switch."}}}}'
             )
             self.wfile.write(msg.encode())
 
 
+# ---- Main ------------------------------------------------------------------
+
 def main():
+    global SUPERVISOR
     os.chdir(DASHBOARD_DIR)
     socketserver.TCPServer.allow_reuse_address = True
 
-    print(f"[dashboard] serving {DASHBOARD_DIR} on http://localhost:{PORT}/")
-    print(f"[dashboard] proxying /api/* to {CORE_URL}")
-    discovered = candidate_stores()
-    discovered_existing = [s for s in discovered if (s / "events.jsonl").exists()]
-    print(f"[dashboard] discovered {len(discovered_existing)} store(s):")
-    for s in discovered_existing:
-        print(f"             - {s}")
-    print(f"[dashboard] open http://localhost:{PORT}/?api=/api in your browser")
-    print(f"[dashboard] Ctrl-C to stop")
+    print(f"[dashboard] dashboard dir: {DASHBOARD_DIR}")
+    print(f"[dashboard] core binary:   {LOCALMEM_BIN}")
+    print(f"[dashboard] default home:  {DEFAULT_HOME}")
+    print(f"[dashboard] core addr:     {CORE_URL}")
+    print(f"[dashboard] dashboard at:  http://localhost:{PORT}/?api=/api")
     print()
+
+    SUPERVISOR = CoreSupervisor(DEFAULT_HOME)
+    ok, msg = SUPERVISOR.start()
+    if ok:
+        log(f"core ready: {msg}")
+    else:
+        log(f"WARNING: core failed to start: {msg}")
+        log(f"         the dashboard will still serve, but live switching may be the only way to recover")
+
+    discovered = [s for s in candidate_stores() if (s / "events.jsonl").exists()]
+    log(f"discovered {len(discovered)} store(s):")
+    for s in discovered:
+        log(f"   - {s}")
 
     if not NO_BROWSER:
         try:
-            webbrowser.open(f"http://localhost:{PORT}/?api=/api")
+            webbrowser.open(f"http://localhost:{PORT}/")
         except Exception:
             pass
+
+    def shutdown(signum, frame):
+        log(f"received signal {signum}, stopping core and exiting")
+        SUPERVISOR.stop()
+        sys.exit(0)
+
+    signal.signal(signal.SIGTERM, shutdown)
+    signal.signal(signal.SIGINT, shutdown)
 
     with socketserver.TCPServer(("127.0.0.1", PORT), Handler) as httpd:
         try:
             httpd.serve_forever()
         except KeyboardInterrupt:
-            print("\n[dashboard] stopped")
+            pass
+        finally:
+            SUPERVISOR.stop()
+            log("stopped")
 
 
 if __name__ == "__main__":

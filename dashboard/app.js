@@ -1,35 +1,26 @@
 // localmem dashboard — vanilla JS, no framework
 //
-// Talks to a running `localmem serve` over HTTP at the default
-// 127.0.0.1:7788 (override via ?api=http://host:port). Read-only by
-// design — no writes from the dashboard UI for now; the surface is
-// `subjects`, `tags`, `recent`, `search`, `recall`, `profile`.
+// Talks to a running `localmem serve` via the local proxy at /api,
+// plus uses /__meta/* for store discovery + live switching.
+//
+// URL state convention (kept clean — no implementation params surface):
+//   /                       default view of the active store
+//   /?subject=Vijay         recall view for a subject
+//   /?q=rust                search results
+//   /?tag=project=foo       feed filtered by container tag
+//   /?api=http://host:port  ONLY for non-default API base (override)
+//
+// All other state lives in the panels and updates via pushState as you
+// click around, so the back button works and links are shareable.
 
-const params = new URLSearchParams(location.search);
-const API = (params.get("api") || "http://127.0.0.1:7788").replace(/\/+$/, "");
+const params = () => new URLSearchParams(location.search);
+
+// API base: prefer ?api= override; else "/api" (the proxy default).
+// This keeps the URL bar clean for normal users.
+const API = (params().get("api") || "/api").replace(/\/+$/, "");
 
 const $ = (id) => document.getElementById(id);
 const setText = (id, t) => { const el = $(id); if (el) el.textContent = t; };
-
-// ---- Small helpers ---------------------------------------------------------
-
-function timeAgo(iso) {
-  try {
-    const then = new Date(iso).getTime();
-    const now = Date.now();
-    const diff = Math.max(0, (now - then) / 1000);
-    if (diff < 60) return `${Math.floor(diff)}s ago`;
-    if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
-    if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
-    return `${Math.floor(diff / 86400)}d ago`;
-  } catch { return iso; }
-}
-
-function kindClass(kind) {
-  const k = (kind || "note").toLowerCase();
-  const known = ["fact", "preference", "decision", "constraint", "todo", "note"];
-  return known.includes(k) ? `kind-${k}` : "kind-note";
-}
 
 function escapeHtml(s) {
   return (s ?? "").toString()
@@ -38,76 +29,15 @@ function escapeHtml(s) {
     .replace(/>/g, "&gt;");
 }
 
-async function api(path, init = {}) {
-  const url = `${API}${path}`;
-  const res = await fetch(url, init);
-  if (!res.ok) {
-    throw new Error(`${res.status} ${res.statusText} for ${path}`);
-  }
-  const ct = res.headers.get("content-type") || "";
-  return ct.includes("application/json") ? res.json() : res.text();
-}
-
-// ---- Connection check + status pill ---------------------------------------
-
-async function checkConnection() {
-  $("endpoint-label").innerHTML = `connected to <code>${API}</code>`;
-  $("help-endpoint").textContent = API;
+function timeAgo(iso) {
   try {
-    await api("/health");
-    const pill = $("conn-pill");
-    pill.textContent = "connected";
-    pill.className = "pill pill-ok";
-    // Best-effort: show the version pill if /version is available.
-    try {
-      const v = await api("/version");
-      const versionStr = (v && (v.version || v.localmem_version)) || "";
-      if (versionStr) {
-        const vpill = $("version-pill");
-        vpill.textContent = `v${String(versionStr).replace(/^v/, "")}`;
-        vpill.hidden = false;
-      }
-    } catch { /* /version may not exist on older cores; ignore */ }
-    return true;
-  } catch (err) {
-    const pill = $("conn-pill");
-    pill.textContent = "disconnected";
-    pill.className = "pill pill-err";
-    pill.style.cursor = "pointer";
-    pill.title = "click for help";
-    pill.onclick = () => $("help-dialog").showModal();
-    // Auto-open help on first failure so the user sees the fix immediately
-    $("help-dialog").showModal();
-    return false;
-  }
-}
-
-// ---- Subjects + tags (left panel) -----------------------------------------
-
-let activeSubject = null;
-let activeTag = null;
-
-// ---- Stores (sidebar — multi-store discovery via /__meta/stores) -----------
-
-function showToast(msg, ms = 2200) {
-  let el = document.getElementById("__toast");
-  if (!el) {
-    el = document.createElement("div");
-    el.id = "__toast";
-    el.className = "toast";
-    document.body.appendChild(el);
-  }
-  el.textContent = msg;
-  el.classList.add("show");
-  clearTimeout(showToast._t);
-  showToast._t = setTimeout(() => el.classList.remove("show"), ms);
-}
-
-function formatBytes(n) {
-  if (!n && n !== 0) return "";
-  if (n < 1024) return `${n}B`;
-  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)}KB`;
-  return `${(n / (1024 * 1024)).toFixed(1)}MB`;
+    const then = new Date(iso).getTime();
+    const diff = Math.max(0, (Date.now() - then) / 1000);
+    if (diff < 60) return `${Math.floor(diff)}s ago`;
+    if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+    if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+    return `${Math.floor(diff / 86400)}d ago`;
+  } catch { return iso; }
 }
 
 function timeAgoFromEpoch(secs) {
@@ -119,46 +49,180 @@ function timeAgoFromEpoch(secs) {
   return `${Math.floor(diff / 86400)}d ago`;
 }
 
-async function loadStores() {
+function formatBytes(n) {
+  if (!n && n !== 0) return "";
+  if (n < 1024) return `${n}B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)}KB`;
+  return `${(n / (1024 * 1024)).toFixed(1)}MB`;
+}
+
+function kindClass(kind) {
+  const k = (kind || "note").toLowerCase();
+  const known = ["fact", "preference", "decision", "constraint", "todo", "note"];
+  return known.includes(k) ? `kind-${k}` : "kind-note";
+}
+
+async function api(path, init = {}) {
+  const url = `${API}${path}`;
+  const res = await fetch(url, init);
+  if (!res.ok) throw new Error(`${res.status} ${res.statusText} for ${path}`);
+  const ct = res.headers.get("content-type") || "";
+  return ct.includes("application/json") ? res.json() : res.text();
+}
+
+async function meta(path, init = {}) {
+  const res = await fetch(path, init);
+  if (!res.ok) throw new Error(`${res.status} ${res.statusText} for ${path}`);
+  return res.json();
+}
+
+// ---- Toast ----------------------------------------------------------------
+
+function showToast(msg, opts = {}) {
+  let el = document.getElementById("__toast");
+  if (!el) {
+    el = document.createElement("div");
+    el.id = "__toast";
+    el.className = "toast";
+    document.body.appendChild(el);
+  }
+  el.textContent = msg;
+  el.className = "toast" + (opts.kind ? ` toast-${opts.kind}` : "") + " show";
+  clearTimeout(showToast._t);
+  showToast._t = setTimeout(() => { el.className = "toast"; }, opts.ms || 2400);
+}
+
+// ---- URL state ------------------------------------------------------------
+//
+// pushUrlState writes a clean URL like "/?subject=Vijay" without reloading,
+// preserving the ?api= override only when one was given explicitly.
+
+function pushUrlState(updates) {
+  const p = new URLSearchParams(location.search);
+  // preserve only api= override if it was originally explicit
+  // strip any keys we manage so they don't accumulate stale state
+  for (const k of ["subject", "q", "tag", "store"]) p.delete(k);
+  for (const [k, v] of Object.entries(updates || {})) {
+    if (v) p.set(k, v);
+  }
+  const qs = p.toString();
+  const newUrl = qs ? `${location.pathname}?${qs}` : location.pathname;
+  history.pushState(updates || {}, "", newUrl);
+}
+
+// ---- Connection -----------------------------------------------------------
+
+async function checkConnection() {
+  $("endpoint-label").innerHTML = `connected to <code>${API === "/api" ? "localmem core (via proxy)" : API}</code>`;
+  $("help-endpoint").textContent = API;
   try {
-    // /__meta/stores is served by the local proxy (serve.py), not the
-    // localmem core. It scans the filesystem to enumerate .localmem dirs.
-    const res = await fetch("/__meta/stores");
-    if (!res.ok) throw new Error(`/__meta/stores ${res.status}`);
-    const data = await res.json();
-    const stores = data.stores || [];
-    const activeGuess = data.active_guess || "";
-    const list = $("stores-list");
-    if (stores.length === 0) {
-      list.innerHTML = `<li class="empty">no <code>.localmem</code> dirs discovered. Set <code>LOCALMEM_DASHBOARD_SCAN</code> when starting <code>serve.py</code>.</li>`;
-      return;
-    }
-    list.innerHTML = stores.map(s => {
-      const isActive = s.path === activeGuess;
-      const cmd = `localmem serve --home ${s.path}`;
-      return `<li class="store-row ${isActive ? "active" : ""}" data-path="${escapeHtml(s.path)}" data-cmd="${escapeHtml(cmd)}">
-        <div class="store-top">
-          <span class="store-label">${escapeHtml(s.label || "store")} ${isActive ? "<span class=\"active-marker\">active</span>" : ""}</span>
-          <span class="store-meta">${s.events} events</span>
-        </div>
-        <div class="store-path" title="${escapeHtml(s.path)}">${escapeHtml(s.path)}</div>
-        <div class="store-meta">${formatBytes(s.size_bytes)} &middot; ${timeAgoFromEpoch(s.last_modified)}</div>
-      </li>`;
-    }).join("");
-    list.querySelectorAll(".store-row").forEach(li => {
-      li.addEventListener("click", () => {
-        const cmd = li.dataset.cmd;
-        navigator.clipboard.writeText(cmd).then(
-          () => showToast("Copied. Paste in terminal: " + cmd, 3000),
-          () => showToast("Copy failed; cmd is in console", 2500)
-        );
-        console.log("[localmem] to switch active store, run:", cmd);
-      });
-    });
-  } catch (err) {
-    $("stores-list").innerHTML = `<li class="empty">no proxy /__meta/stores endpoint. Start the dashboard via <code>python3 serve.py</code>.</li>`;
+    await api("/health");
+    const pill = $("conn-pill");
+    pill.textContent = "connected";
+    pill.className = "pill pill-ok";
+    try {
+      const v = await api("/version");
+      const versionStr = (v && (v.version || v.localmem_version)) || "";
+      if (versionStr) {
+        const vpill = $("version-pill");
+        vpill.textContent = `v${String(versionStr).replace(/^v/, "")}`;
+        vpill.hidden = false;
+      }
+    } catch { /* /version optional */ }
+    return true;
+  } catch {
+    const pill = $("conn-pill");
+    pill.textContent = "disconnected";
+    pill.className = "pill pill-err";
+    pill.style.cursor = "pointer";
+    pill.title = "click for help";
+    pill.onclick = () => $("help-dialog").showModal();
+    $("help-dialog").showModal();
+    return false;
   }
 }
+
+// ---- Stores (sidebar) -----------------------------------------------------
+
+let storesData = { stores: [], active_home: "" };
+
+async function loadStores() {
+  try {
+    const data = await meta("/__meta/stores");
+    storesData = data;
+    renderStores();
+  } catch {
+    $("stores-list").innerHTML = `<li class="empty">no proxy <code>/__meta/stores</code> endpoint. Start the dashboard via <code>python3 serve.py</code>.</li>`;
+  }
+}
+
+function renderStores() {
+  const list = $("stores-list");
+  const stores = storesData.stores || [];
+  const activePath = storesData.active_home || "";
+
+  if (stores.length === 0) {
+    list.innerHTML = `<li class="empty">no <code>.localmem</code> dirs discovered. Set <code>LOCALMEM_DASHBOARD_SCAN</code> when starting <code>serve.py</code>.</li>`;
+    return;
+  }
+
+  list.innerHTML = stores.map(s => {
+    const isActive = s.path === activePath;
+    return `<li class="store-row ${isActive ? "active" : ""}" data-path="${escapeHtml(s.path)}">
+      <div class="store-top">
+        <span class="store-label">${escapeHtml(s.label || "store")} ${isActive ? "<span class=\"active-marker\">active</span>" : ""}</span>
+        <span class="store-meta">${s.events} events</span>
+      </div>
+      <div class="store-path" title="${escapeHtml(s.path)}">${escapeHtml(s.path)}</div>
+      <div class="store-meta">${formatBytes(s.size_bytes)} &middot; ${timeAgoFromEpoch(s.last_modified)}</div>
+      ${isActive ? "" : `<div class="store-actions"><button class="btn btn-primary btn-sm switch-btn" data-path="${escapeHtml(s.path)}">switch to this store</button></div>`}
+    </li>`;
+  }).join("");
+
+  list.querySelectorAll(".switch-btn").forEach(btn => {
+    btn.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      await switchStore(btn.dataset.path, btn);
+    });
+  });
+}
+
+async function switchStore(path, btn) {
+  const label = path.split("/").slice(-2).join("/");
+  showToast(`Switching to ${label}…`);
+  if (btn) { btn.disabled = true; btn.textContent = "switching…"; }
+  try {
+    const res = await fetch("/__meta/switch", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ home: path })
+    });
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.message || "switch failed");
+    showToast(`Active: ${label}`, { kind: "ok" });
+    storesData.active_home = data.active_home || path;
+    renderStores();
+    // Reset main view to defaults for the new store, then reload data.
+    activeSubject = null;
+    activeTag = null;
+    setText("feed-title", "Recent captures");
+    setText("detail-title", "Search");
+    $("detail").innerHTML = `<p class="hint">Type a query above and press Enter, or click a subject / tag on the left.</p>`;
+    $("clear-filter-btn").hidden = true;
+    pushUrlState({});
+    await Promise.all([loadSubjects(), loadTags(), loadRecent()]);
+    await checkConnection();
+  } catch (err) {
+    showToast(`Switch failed: ${err.message}`, { kind: "err", ms: 4000 });
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = "switch to this store"; }
+  }
+}
+
+// ---- Subjects + tags + recent --------------------------------------------
+
+let activeSubject = null;
+let activeTag = null;
 
 async function loadSubjects() {
   try {
@@ -171,12 +235,12 @@ async function loadSubjects() {
       return;
     }
     list.innerHTML = subjects.map(s =>
-      `<li data-subject="${escapeHtml(s.subject)}">
+      `<li data-subject="${escapeHtml(s.subject)}" class="${activeSubject === s.subject ? "active" : ""}">
          <span class="lbl">${escapeHtml(s.subject)}</span>
          <span class="count">${s.count}</span>
        </li>`
     ).join("");
-    list.querySelectorAll("li").forEach(li => {
+    list.querySelectorAll("li[data-subject]").forEach(li => {
       li.addEventListener("click", () => selectSubject(li.dataset.subject));
     });
   } catch (err) {
@@ -195,13 +259,15 @@ async function loadTags() {
       list.innerHTML = `<li class="empty">no tags in use yet &mdash; try <code>--tags project=foo</code> on a write</li>`;
       return;
     }
-    list.innerHTML = tags.map(t =>
-      `<li data-key="${escapeHtml(t.key)}" data-value="${escapeHtml(t.value)}">
-         <span class="lbl"><code>${escapeHtml(t.key)}=${escapeHtml(t.value)}</code></span>
-         <span class="count">${t.count}</span>
-       </li>`
-    ).join("");
-    list.querySelectorAll("li").forEach(li => {
+    list.innerHTML = tags.map(t => {
+      const tagKey = `${t.key}=${t.value}`;
+      const isActive = activeTag === tagKey;
+      return `<li data-key="${escapeHtml(t.key)}" data-value="${escapeHtml(t.value)}" class="${isActive ? "active" : ""}">
+        <span class="lbl"><code>${escapeHtml(t.key)}=${escapeHtml(t.value)}</code></span>
+        <span class="count">${t.count}</span>
+      </li>`;
+    }).join("");
+    list.querySelectorAll("li[data-key]").forEach(li => {
       li.addEventListener("click", () => selectTag(li.dataset.key, li.dataset.value));
     });
   } catch (err) {
@@ -209,8 +275,6 @@ async function loadTags() {
     setText("stat-tags", "— tags");
   }
 }
-
-// ---- Recent captures (center feed) ----------------------------------------
 
 async function loadRecent(limit = 25) {
   try {
@@ -238,16 +302,12 @@ async function loadRecent(limit = 25) {
   }
 }
 
-// ---- Search (right panel) -------------------------------------------------
-
-async function runSearch(query) {
+async function runSearch(query, opts = {}) {
   if (!query) return;
-  setText("detail-title", `Search results`);
+  setText("detail-title", `Search: "${query}"`);
   const detail = $("detail");
   detail.innerHTML = `<p class="hint">searching for <code>${escapeHtml(query)}</code>&hellip;</p>`;
   try {
-    // The HTTP /search endpoint is hybrid-only (BM25 + ANN + RRF).
-    // The CLI `--mode lex` etc. are CLI-side flags only.
     const data = await api("/search", {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -255,7 +315,7 @@ async function runSearch(query) {
     });
     const hits = data.results || [];
     if (hits.length === 0) {
-      detail.innerHTML = `<p class="hint">no hybrid-search results for <code>${escapeHtml(query)}</code>.</p>`;
+      detail.innerHTML = `<p class="hint">no results for <code>${escapeHtml(query)}</code>.</p>`;
       return;
     }
     detail.innerHTML = hits.map((h, i) => `
@@ -268,9 +328,10 @@ async function runSearch(query) {
   } catch (err) {
     detail.innerHTML = `<p class="hint">search failed: ${escapeHtml(err.message)}</p>`;
   }
+  if (!opts.skipUrl) pushUrlState({ q: query });
 }
 
-async function selectSubject(subject) {
+async function selectSubject(subject, opts = {}) {
   activeSubject = subject;
   activeTag = null;
   document.querySelectorAll("#subjects-list li").forEach(li =>
@@ -286,7 +347,7 @@ async function selectSubject(subject) {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ entity: subject })
     });
-    const facts = data.facts || data.results || [];
+    const facts = data.facts || [];
     if (facts.length === 0) {
       detail.innerHTML = `<p class="hint">no facts recorded for <code>${escapeHtml(subject)}</code>.</p>`;
       return;
@@ -300,10 +361,12 @@ async function selectSubject(subject) {
   } catch (err) {
     detail.innerHTML = `<p class="hint">recall failed: ${escapeHtml(err.message)}</p>`;
   }
+  if (!opts.skipUrl) pushUrlState({ subject });
 }
 
-async function selectTag(key, value) {
-  activeTag = `${key}=${value}`;
+async function selectTag(key, value, opts = {}) {
+  const tagKey = `${key}=${value}`;
+  activeTag = tagKey;
   activeSubject = null;
   document.querySelectorAll("#tags-list li").forEach(li =>
     li.classList.toggle("active", li.dataset.key === key && li.dataset.value === value)
@@ -314,11 +377,6 @@ async function selectTag(key, value) {
   const feed = $("feed");
   feed.innerHTML = `<div class="empty">loading captures tagged <code>${escapeHtml(key)}=${escapeHtml(value)}</code>&hellip;</div>`;
   try {
-    // Use search with tag filter as the filtering primitive — the
-    // resource/recent endpoint doesn't accept a tag filter today.
-    // The HTTP /search endpoint expects a non-empty query string;
-    // we send a single wildcard char and rely on the tag filter to
-    // narrow.
     const data = await api("/search", {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -341,14 +399,16 @@ async function selectTag(key, value) {
   } catch (err) {
     feed.innerHTML = `<div class="empty">tag-filter search failed: ${escapeHtml(err.message)}</div>`;
   }
+  if (!opts.skipUrl) pushUrlState({ tag: tagKey });
 }
 
-function clearFilter() {
+function clearFilter(opts = {}) {
   activeTag = null;
   document.querySelectorAll("#tags-list li").forEach(li => li.classList.remove("active"));
   setText("feed-title", "Recent captures");
   $("clear-filter-btn").hidden = true;
   loadRecent();
+  if (!opts.skipUrl) pushUrlState({});
 }
 
 async function loadProfile() {
@@ -367,19 +427,45 @@ async function loadProfile() {
   }
 }
 
+// ---- Apply URL state on load + back/forward ------------------------------
+
+async function applyUrlState() {
+  const p = params();
+  const subject = p.get("subject");
+  const q = p.get("q");
+  const tag = p.get("tag");
+
+  // Default UI state
+  setText("detail-title", "Search");
+  $("detail").innerHTML = `<p class="hint">Type a query above and press Enter, or click a subject / tag on the left.</p>`;
+  setText("feed-title", "Recent captures");
+  $("clear-filter-btn").hidden = true;
+  activeSubject = null;
+  activeTag = null;
+  document.querySelectorAll("#subjects-list li").forEach(li => li.classList.remove("active"));
+  document.querySelectorAll("#tags-list li").forEach(li => li.classList.remove("active"));
+
+  if (subject) {
+    await selectSubject(subject, { skipUrl: true });
+  } else if (tag && tag.includes("=")) {
+    const [k, v] = tag.split("=", 2);
+    await selectTag(k, v, { skipUrl: true });
+  }
+  if (q) {
+    $("search-input").value = q;
+    await runSearch(q, { skipUrl: true });
+  }
+}
+
 // ---- Wire-up --------------------------------------------------------------
 
 document.addEventListener("DOMContentLoaded", async () => {
-  // Stores discovery doesn't need the core to be reachable; load it
-  // independently so the user still sees the list even when the active
-  // core is down.
   loadStores();
-
   const ok = await checkConnection();
   if (!ok) return;
   await Promise.all([loadSubjects(), loadTags(), loadRecent()]);
+  await applyUrlState();
 
-  // Search box
   $("search-input").addEventListener("keydown", (e) => {
     if (e.key === "Enter") {
       const q = e.target.value.trim();
@@ -387,14 +473,13 @@ document.addEventListener("DOMContentLoaded", async () => {
     }
   });
 
-  // Refresh button — refresh the active core's data + the stores list
   $("refresh-btn").addEventListener("click", async () => {
     await Promise.all([loadStores(), loadSubjects(), loadTags(), loadRecent()]);
   });
 
-  // Clear tag filter
-  $("clear-filter-btn").addEventListener("click", clearFilter);
+  $("clear-filter-btn").addEventListener("click", () => clearFilter());
 
-  // Profile loader
   $("load-profile").addEventListener("click", loadProfile);
+
+  window.addEventListener("popstate", applyUrlState);
 });
