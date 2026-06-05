@@ -338,6 +338,7 @@ section.lm-section:first-of-type { border-top: none; }
   max-width: 1320px;
   margin: 0 auto;
   padding: 0 32px;
+  text-align: center;
 }
 .hero-full__eyebrow {
   display: inline-flex;
@@ -349,7 +350,7 @@ section.lm-section:first-of-type { border-top: none; }
   text-transform: uppercase;
   letter-spacing: 0.16em;
   color: var(--lm-accent-strong);
-  margin-bottom: 28px;
+  margin: 0 auto 28px;
 }
 .hero-full__eyebrow::before {
   content: '';
@@ -362,26 +363,26 @@ section.lm-section:first-of-type { border-top: none; }
 .hero-full__brand {
   font-family: var(--lm-font-display);
   font-weight: 900;
-  font-size: clamp(72px, 13.5vw, 200px);
-  line-height: 0.86;
+  font-size: clamp(64px, 13vw, 180px);
+  line-height: 0.9;
   letter-spacing: -0.05em;
   color: var(--lm-ink);
-  margin: 0 0 36px;
+  margin: 0 0 30px;
   text-transform: lowercase;
+  white-space: nowrap;
 }
 .hero-full__brand .a { color: var(--lm-accent); }
-.hero-full__brand .stack { display: block; }
 
 .hero-full__sub {
   font-family: var(--lm-font-display);
-  font-size: clamp(16px, 1.8vw, 22px);
+  font-size: clamp(15px, 1.7vw, 21px);
   font-weight: 700;
   line-height: 1.4;
   letter-spacing: 0.005em;
   color: var(--lm-ink);
   text-transform: uppercase;
-  max-width: 960px;
-  margin-bottom: 36px;
+  max-width: 920px;
+  margin: 0 auto 36px;
 }
 
 .hero-full__stats {
@@ -389,8 +390,8 @@ section.lm-section:first-of-type { border-top: none; }
   flex-wrap: wrap;
   border: 1.5px solid var(--lm-border-heavy);
   background: var(--lm-bg-card);
-  max-width: 960px;
-  margin-bottom: 28px;
+  max-width: 920px;
+  margin: 0 auto 24px;
 }
 .hero-full__stat {
   flex: 1 1 140px;
@@ -404,8 +405,10 @@ section.lm-section:first-of-type { border-top: none; }
   color: var(--lm-ink-faint);
   display: flex;
   flex-direction: column;
+  align-items: center;
   gap: 4px;
   min-width: 0;
+  text-align: center;
 }
 .hero-full__stat:last-child { border-right: none; }
 .hero-full__stat-num {
@@ -427,11 +430,12 @@ section.lm-section:first-of-type { border-top: none; }
   padding: 16px 20px;
   font-family: var(--lm-font-mono);
   font-size: 14.5px;
-  max-width: 960px;
-  margin-bottom: 28px;
+  max-width: 920px;
+  margin: 0 auto 24px;
   position: relative;
   overflow-x: auto;
   white-space: nowrap;
+  text-align: left;
 }
 .hero-full__cmd .dollar { color: var(--lm-ink-faint); flex-shrink: 0; user-select: none; }
 .hero-full__cmd .cmd { color: var(--lm-ink); flex: 1 1 auto; min-width: 0; }
@@ -458,7 +462,9 @@ section.lm-section:first-of-type { border-top: none; }
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
-  max-width: 960px;
+  max-width: 920px;
+  margin: 0 auto;
+  justify-content: center;
 }
 .hero-full__ctas .lm-btn {
   min-height: 48px;
@@ -480,6 +486,227 @@ section.lm-section:first-of-type { border-top: none; }
   color: var(--lm-accent);
   border-color: var(--lm-ink);
 }
+
+/* --- SHIP IT (numbered install steps + agent wireup grid) --- */
+.ship-it {
+  border-top: 4px solid var(--lm-border-heavy);
+  border-bottom: 4px solid var(--lm-border-heavy);
+  background: var(--lm-bg);
+  background-image: radial-gradient(circle, var(--lm-bg-dot) 0.5px, transparent 0.5px);
+  background-size: 16px 16px;
+  padding: 70px 0 76px;
+}
+.ship-it__inner {
+  max-width: 1140px;
+  margin: 0 auto;
+  padding: 0 32px;
+}
+.ship-it__eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-family: var(--lm-font-mono);
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  color: var(--lm-accent-strong);
+  margin-bottom: 14px;
+}
+.ship-it__eyebrow::before { content:''; width:8px; height:8px; background: var(--lm-accent); flex-shrink: 0; }
+@media (prefers-color-scheme: dark) { .ship-it__eyebrow { color: var(--lm-accent); } }
+
+.ship-it__title {
+  font-family: var(--lm-font-display);
+  font-weight: 900;
+  font-size: clamp(32px, 4.5vw, 54px);
+  line-height: 1.05;
+  letter-spacing: -0.025em;
+  color: var(--lm-ink);
+  text-transform: uppercase;
+  margin-bottom: 16px;
+}
+.ship-it__sub {
+  font-family: var(--lm-font-display);
+  font-size: clamp(14px, 1.5vw, 18px);
+  font-weight: 700;
+  letter-spacing: 0.005em;
+  text-transform: uppercase;
+  color: var(--lm-ink-secondary);
+  max-width: 880px;
+  margin-bottom: 48px;
+  line-height: 1.5;
+}
+
+.step {
+  display: grid;
+  grid-template-columns: 56px 1fr;
+  gap: 0 20px;
+  margin-bottom: 28px;
+  align-items: start;
+}
+.step__num {
+  font-family: var(--lm-font-display);
+  font-size: 40px;
+  font-weight: 900;
+  line-height: 1;
+  color: var(--lm-ink);
+  border-bottom: 4px solid var(--lm-accent);
+  padding-bottom: 6px;
+  letter-spacing: -0.03em;
+  text-align: center;
+}
+.step__head {
+  font-family: var(--lm-font-display);
+  font-size: clamp(18px, 2vw, 22px);
+  font-weight: 800;
+  text-transform: uppercase;
+  color: var(--lm-ink);
+  letter-spacing: -0.005em;
+  margin-bottom: 12px;
+  line-height: 1.2;
+}
+.step__cmd {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: var(--lm-bg-card);
+  border: 1.5px solid var(--lm-border-heavy);
+  padding: 14px 18px;
+  font-family: var(--lm-font-mono);
+  font-size: 14px;
+  position: relative;
+  overflow-x: auto;
+  white-space: nowrap;
+  margin-bottom: 8px;
+}
+.step__cmd .dollar { color: var(--lm-ink-faint); flex-shrink: 0; user-select: none; }
+.step__cmd .cmd { color: var(--lm-ink); flex: 1 1 auto; min-width: 0; }
+.step__cmd .copy {
+  margin-left: auto;
+  background: var(--lm-bg);
+  border: 1.5px solid var(--lm-border-heavy);
+  color: var(--lm-ink);
+  padding: 5px 12px;
+  font-family: var(--lm-font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.step__cmd .copy:hover { background: var(--lm-ink); color: var(--lm-bg); }
+.step__cmd .copy.done { background: var(--lm-accent); color: var(--lm-ink); border-color: var(--lm-ink); }
+.step__hint {
+  font-family: var(--lm-font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--lm-ink-faint);
+}
+
+/* AGENT WIRE-UP GRID */
+.wireup {
+  display: grid;
+  grid-template-columns: 1fr 1.2fr;
+  gap: 0;
+  border: 1.5px solid var(--lm-border-heavy);
+  background: var(--lm-bg-card);
+  margin-top: 8px;
+}
+@media (max-width: 820px) { .wireup { grid-template-columns: 1fr; } }
+.wireup__left, .wireup__right { padding: 22px 24px; min-width: 0; }
+.wireup__left { border-right: 1.5px solid var(--lm-border-heavy); }
+@media (max-width: 820px) {
+  .wireup__left { border-right: none; border-bottom: 1.5px solid var(--lm-border-heavy); }
+}
+.wireup__heading {
+  font-family: var(--lm-font-mono);
+  font-size: 10.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--lm-ink-faint);
+  margin-bottom: 12px;
+}
+.wireup__agents { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.agent-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 14px;
+  background: var(--lm-bg);
+  border: 1.5px solid var(--lm-border-light);
+  font-family: var(--lm-font-mono);
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--lm-ink);
+  min-width: 0;
+}
+.agent-row__name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.agent-row__cta {
+  font-family: var(--lm-font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  background: var(--lm-bg);
+  border: 1.5px solid var(--lm-border-heavy);
+  color: var(--lm-ink);
+  padding: 4px 10px;
+  cursor: pointer;
+  flex-shrink: 0;
+  text-decoration: none;
+}
+.agent-row__cta:hover { background: var(--lm-ink); color: var(--lm-bg); text-decoration: none; }
+.agent-row__cta.done { background: var(--lm-accent); color: var(--lm-ink); border-color: var(--lm-ink); }
+.wireup__foot {
+  margin-top: 14px;
+  font-family: var(--lm-font-mono);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--lm-ink-faint);
+  line-height: 1.5;
+}
+.wireup__json {
+  background: var(--lm-bg);
+  border: 1.5px solid var(--lm-border-heavy);
+  padding: 16px 18px;
+  font-family: var(--lm-font-mono);
+  font-size: 12.5px;
+  line-height: 1.55;
+  white-space: pre;
+  overflow-x: auto;
+  position: relative;
+  color: var(--lm-ink);
+}
+.wireup__json .copy {
+  position: absolute;
+  top: 10px; right: 10px;
+  background: var(--lm-bg-card);
+  border: 1.5px solid var(--lm-border-heavy);
+  color: var(--lm-ink);
+  padding: 4px 11px;
+  font-family: var(--lm-font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.wireup__json .copy:hover { background: var(--lm-ink); color: var(--lm-bg); }
+.wireup__json .copy.done { background: var(--lm-accent); color: var(--lm-ink); border-color: var(--lm-ink); }
+.wireup__json .k { color: var(--lm-accent-strong); }
+.wireup__json .s { color: var(--lm-ink-secondary); }
+@media (prefers-color-scheme: dark) { .wireup__json .k { color: var(--lm-accent); } }
+
 
 /* --- DEMO --- */
 .demo { display: block; max-width: 880px; }
@@ -683,10 +910,7 @@ footer.lm-footer .meta { color: var(--lm-ink-faint); text-transform: none; lette
   <div class="hero-full__inner">
     <div class="hero-full__eyebrow">NO CONTENT TELEMETRY &middot; v0.2.0 &middot; APACHE-2.0</div>
 
-    <h1 class="hero-full__brand">
-      <span class="stack">local<span class="a">&middot;</span></span>
-      <span class="stack">mem</span>
-    </h1>
+    <h1 class="hero-full__brand">local<span class="a">&middot;</span>mem</h1>
 
     <p class="hero-full__sub">
       THE MEMORY LAYER YOUR CODING AGENT SHOULD HAVE HAD FROM DAY ONE.
@@ -719,11 +943,106 @@ footer.lm-footer .meta { color: var(--lm-ink-faint); text-transform: none; lette
     </div>
 
     <div class="hero-full__ctas">
-      <a class="lm-btn lm-btn--primary" href="https://github.com/VJ-yadav/localmem-public#install">&#9656; Install</a>
+      <a class="lm-btn lm-btn--primary" href="#ship-it">&#9656; Install</a>
       <a class="lm-btn" href="https://github.com/VJ-yadav/localmem-public">&#9733; GitHub <span class="star-count" id="gh-stars">&middot;&middot;</span></a>
       <a class="lm-btn" href="https://github.com/VJ-yadav/localmem-public/stargazers">&#9734; Star</a>
       <a class="lm-btn" href="https://www.npmjs.com/package/localmem-mcp">&#9656; npm</a>
       <a class="lm-btn" href="#demo">&#9656; See it move</a>
+    </div>
+  </div>
+</section>
+
+<!-- SHIP IT (full-width, mirrors hero band) -->
+<section class="ship-it" id="ship-it">
+  <div class="ship-it__inner">
+    <div class="ship-it__eyebrow">Ship it</div>
+    <h2 class="ship-it__title">One install.<br>Any agent.</h2>
+    <p class="ship-it__sub">
+      Runs on your machine. Data stays local. Works with Claude Desktop, Claude Code, Cursor, Cline, Windsurf, and any MCP-compatible client.
+    </p>
+
+    <!-- Step 1 -->
+    <div class="step">
+      <div class="step__num">1</div>
+      <div>
+        <div class="step__head">Install the binary</div>
+        <div class="step__cmd">
+          <span class="dollar">$</span>
+          <span class="cmd">curl -fsSL https://localmem.org/install | sh</span>
+          <button class="copy" type="button" onclick="copyText(this, 'curl -fsSL https://localmem.org/install | sh')">click to copy</button>
+        </div>
+        <div class="step__hint">One static Rust binary &middot; macOS + Linux &middot; ~12 MB</div>
+      </div>
+    </div>
+
+    <!-- Step 2 -->
+    <div class="step">
+      <div class="step__num">2</div>
+      <div>
+        <div class="step__head">Start the core</div>
+        <div class="step__cmd">
+          <span class="dollar">$</span>
+          <span class="cmd">localmem init &amp;&amp; localmem fetch-model &amp;&amp; localmem serve &amp;</span>
+          <button class="copy" type="button" onclick="copyText(this, 'localmem init && localmem fetch-model && localmem serve &')">click to copy</button>
+        </div>
+        <div class="step__hint">Creates ~/.localmem &middot; fetches the 30 MB embedder &middot; binds :8765</div>
+      </div>
+    </div>
+
+    <!-- Step 3 -->
+    <div class="step">
+      <div class="step__num">3</div>
+      <div>
+        <div class="step__head">Wire up any agent</div>
+        <div class="wireup">
+          <div class="wireup__left">
+            <div class="wireup__heading">One-command install per client</div>
+            <div class="wireup__agents">
+              <div class="agent-row">
+                <span class="agent-row__name">Claude Desktop</span>
+                <button class="agent-row__cta" type="button" onclick="copyText(this, 'localmem mcp install --client claude')">copy</button>
+              </div>
+              <div class="agent-row">
+                <span class="agent-row__name">Claude Code</span>
+                <button class="agent-row__cta" type="button" onclick="copyText(this, 'localmem mcp install --client claude-code')">copy</button>
+              </div>
+              <div class="agent-row">
+                <span class="agent-row__name">Cursor</span>
+                <button class="agent-row__cta" type="button" onclick="copyText(this, 'localmem mcp install --client cursor')">copy</button>
+              </div>
+              <div class="agent-row">
+                <span class="agent-row__name">Cline</span>
+                <button class="agent-row__cta" type="button" onclick="copyText(this, 'localmem mcp install --client cline')">copy</button>
+              </div>
+              <div class="agent-row">
+                <span class="agent-row__name">Windsurf</span>
+                <button class="agent-row__cta" type="button" onclick="copyText(this, 'localmem mcp install --client windsurf')">copy</button>
+              </div>
+              <div class="agent-row">
+                <span class="agent-row__name">Codex CLI</span>
+                <button class="agent-row__cta" type="button" onclick="copyText(this, 'localmem mcp install --client codex')">copy</button>
+              </div>
+            </div>
+            <div class="wireup__foot">
+              Each command writes the right config block for that client. Restart the client; the 6 memory_* tools appear.
+            </div>
+          </div>
+          <div class="wireup__right">
+            <div class="wireup__heading">Or paste the universal MCP JSON</div>
+<div class="wireup__json"><button class="copy" type="button" onclick="copyText(this, '{\n  &quot;mcpServers&quot;: {\n    &quot;localmem&quot;: {\n      &quot;command&quot;: &quot;npx&quot;,\n      &quot;args&quot;: [&quot;-y&quot;, &quot;localmem-mcp&quot;]\n    }\n  }\n}')">copy</button>{
+  <span class="k">"mcpServers"</span>: {
+    <span class="k">"localmem"</span>: {
+      <span class="k">"command"</span>: <span class="s">"npx"</span>,
+      <span class="k">"args"</span>: [<span class="s">"-y"</span>, <span class="s">"localmem-mcp"</span>]
+    }
+  }
+}</div>
+            <div class="wireup__foot">
+              Drop into any client that reads mcpServers. Defaults to talking to localhost:8765.
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 </section>
