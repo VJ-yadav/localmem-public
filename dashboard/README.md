@@ -17,7 +17,7 @@ A local web UI for visually browsing the memory stored in your
 
 ## How to use it (v0.2.1)
 
-### Prerequisite — start the core
+### Step 1 — start the localmem core
 
 ```bash
 localmem serve
@@ -25,31 +25,39 @@ localmem serve
 
 Leave that running. The dashboard talks to it at the default `http://127.0.0.1:7788`.
 
-### Option A — open from file:// (might just work)
+### Step 2 — start the dashboard server
 
 ```bash
-open /Users/you/path/to/localmem-public/dashboard/index.html
+python3 dashboard/serve.py
 ```
 
-Some browsers allow fetches from `file://` to `localhost`. If it works, you'll see your data. If you see the "Can't reach the localmem core" dialog with a CORS-shaped message in the browser console, use Option B.
+This does **two** things in a single process:
+1. Serves the dashboard static files on `http://localhost:8088/`
+2. Forwards `/api/*` requests to the localmem core at `http://127.0.0.1:7788`
 
-### Option B — serve via localhost (always works)
+Because the dashboard and the API now share the same origin (your localhost:8088), the browser does not block fetches. **No CORS issues.**
 
-```bash
-cd dashboard
-python3 -m http.server 8080
-# then in your browser: http://localhost:8080/
-```
+The script auto-opens your default browser to `http://localhost:8088/?api=/api`. Set `DASHBOARD_NO_BROWSER=1` to skip the auto-open. Other env vars:
 
-This serves the dashboard from `http://localhost:8080`. Same-origin policy treats it as different from `http://localhost:7788` (where the API lives), so browser CORS rules apply — but most browsers permit localhost-to-localhost requests freely.
+| Var | Default | Purpose |
+|---|---|---|
+| `DASHBOARD_PORT` | `8088` | Where to serve the UI |
+| `LOCALMEM_CORE_URL` | `http://127.0.0.1:7788` | Where the localmem core is running |
+| `DASHBOARD_NO_BROWSER` | unset | If set to `1`, do not auto-open the browser |
 
-### Option C — coming in v0.2.2
+Stop with Ctrl-C.
+
+### Why a helper script and not just open the HTML directly
+
+Browsers block cross-origin fetches between different localhost ports. The dashboard at `file://...` or `localhost:8080` cannot read JSON from `localhost:7788` because the localmem core does not (yet) send `Access-Control-Allow-Origin` headers. The proxy in `serve.py` makes the dashboard and the API look like the same origin to the browser. ~110 lines of Python, only the stdlib.
+
+### Coming in v0.2.2
 
 ```bash
 localmem serve --dashboard      # planned
 ```
 
-The Rust core will serve `dashboard/` at the same origin as the API. No CORS, no second process. Tracked as a v0.2.2 task. Once shipped, this becomes the default.
+The Rust core will serve `dashboard/` at the same origin as the API natively. No proxy, no `serve.py`, no second process. Tracked as a v0.2.2 task. Once shipped, the Python helper goes away.
 
 ## Custom API endpoint
 
