@@ -170,12 +170,15 @@ function renderStores() {
     const isActive = s.path === activePath;
     return `<li class="store-row ${isActive ? "active" : ""}" data-path="${escapeHtml(s.path)}">
       <div class="store-top">
-        <span class="store-label">${escapeHtml(s.label || "store")} ${isActive ? "<span class=\"active-marker\">active</span>" : ""}</span>
+        <span class="store-label">
+          <span>${escapeHtml(s.label || "store")}</span>
+          ${isActive ? `<span class="active-marker">active</span>` : ""}
+        </span>
         <span class="store-meta">${s.events} events</span>
       </div>
       <div class="store-path" title="${escapeHtml(s.path)}">${escapeHtml(s.path)}</div>
       <div class="store-meta">${formatBytes(s.size_bytes)} &middot; ${timeAgoFromEpoch(s.last_modified)}</div>
-      ${isActive ? "" : `<div class="store-actions"><button class="btn btn-primary btn-sm switch-btn" data-path="${escapeHtml(s.path)}">switch to this store</button></div>`}
+      ${isActive ? "" : `<div class="store-actions"><button class="btn btn-primary btn-sm switch-btn" data-path="${escapeHtml(s.path)}">switch</button></div>`}
     </li>`;
   }).join("");
 
@@ -215,7 +218,7 @@ async function switchStore(path, btn) {
   } catch (err) {
     showToast(`Switch failed: ${err.message}`, { kind: "err", ms: 4000 });
   } finally {
-    if (btn) { btn.disabled = false; btn.textContent = "switch to this store"; }
+    if (btn) { btn.disabled = false; btn.textContent = "switch"; }
   }
 }
 
