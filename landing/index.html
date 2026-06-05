@@ -143,13 +143,17 @@ code {
 }
 .lm-btn--primary {
   background: var(--lm-accent);
-  color: white;
-  border-color: var(--lm-accent);
+  color: var(--lm-ink);
+  border-color: var(--lm-ink);
 }
 .lm-btn--primary:hover {
   background: var(--lm-accent-strong);
-  color: white;
-  border-color: var(--lm-accent-strong);
+  color: var(--lm-ink);
+  border-color: var(--lm-ink);
+}
+@media (prefers-color-scheme: dark) {
+  .lm-btn--primary { color: #0a0a0a; border-color: #0a0a0a; }
+  .lm-btn--primary:hover { color: #0a0a0a; border-color: #0a0a0a; }
 }
 .lm-btn--lg { min-height: 48px; padding: 13px 28px; font-size: 12px; }
 .lm-btn--sm { min-height: 32px; padding: 6px 14px; font-size: 10px; }
@@ -195,7 +199,7 @@ code {
   display: inline-flex;
   align-items: center;
   background: var(--lm-accent);
-  color: white;
+  color: var(--lm-ink);
   padding: 3px 8px;
   font-family: var(--lm-font-mono);
   font-size: 9.5px;
@@ -322,54 +326,160 @@ section.lm-section:first-of-type { border-top: none; }
   margin-bottom: 28px;
 }
 
-/* --- HERO --- */
-.hero { padding: 90px 0 60px; }
-.hero .lm-pill { margin-bottom: 20px; }
+/* --- HERO (full-bleed, agentmemory-style stacked brand) --- */
+.hero-full {
+  background: var(--lm-bg);
+  background-image: radial-gradient(circle, var(--lm-bg-dot) 0.5px, transparent 0.5px);
+  background-size: 16px 16px;
+  border-bottom: 4px solid var(--lm-border-heavy);
+  padding: 72px 0 76px;
+}
+.hero-full__inner {
+  max-width: 1320px;
+  margin: 0 auto;
+  padding: 0 32px;
+}
+.hero-full__eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-family: var(--lm-font-mono);
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  color: var(--lm-accent-strong);
+  margin-bottom: 28px;
+}
+.hero-full__eyebrow::before {
+  content: '';
+  width: 8px; height: 8px;
+  background: var(--lm-accent);
+  flex-shrink: 0;
+}
+@media (prefers-color-scheme: dark) { .hero-full__eyebrow { color: var(--lm-accent); } }
 
-.hero__badges {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
+.hero-full__brand {
+  font-family: var(--lm-font-display);
+  font-weight: 900;
+  font-size: clamp(72px, 13.5vw, 200px);
+  line-height: 0.86;
+  letter-spacing: -0.05em;
+  color: var(--lm-ink);
+  margin: 0 0 36px;
+  text-transform: lowercase;
+}
+.hero-full__brand .a { color: var(--lm-accent); }
+.hero-full__brand .stack { display: block; }
+
+.hero-full__sub {
+  font-family: var(--lm-font-display);
+  font-size: clamp(16px, 1.8vw, 22px);
+  font-weight: 700;
+  line-height: 1.4;
+  letter-spacing: 0.005em;
+  color: var(--lm-ink);
+  text-transform: uppercase;
+  max-width: 960px;
   margin-bottom: 36px;
 }
 
-.hero__install {
+.hero-full__stats {
+  display: flex;
+  flex-wrap: wrap;
+  border: 1.5px solid var(--lm-border-heavy);
   background: var(--lm-bg-card);
-  border: 1.5px solid var(--lm-border-heavy);
-  padding: 22px 26px;
-  font-family: var(--lm-font-mono);
-  font-size: 14px;
-  line-height: 1.7;
-  margin-bottom: 24px;
-  max-width: 820px;
-  overflow-x: auto;
-  white-space: pre;
-  position: relative;
+  max-width: 960px;
+  margin-bottom: 28px;
 }
-.hero__install .p { color: var(--lm-ink-faint); user-select: none; }
-.hero__install .c { color: var(--lm-ink-faint); font-size: 12px; display: block; margin-top: 8px; }
-.hero__install .copy {
-  position: absolute;
-  top: 14px;
-  right: 14px;
-  background: var(--lm-bg);
-  border: 1.5px solid var(--lm-border-heavy);
-  color: var(--lm-ink);
-  padding: 5px 12px;
+.hero-full__stat {
+  flex: 1 1 140px;
+  padding: 14px 20px;
+  border-right: 1.5px solid var(--lm-border-heavy);
   font-family: var(--lm-font-mono);
   font-size: 10px;
   font-weight: 700;
-  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--lm-ink-faint);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.hero-full__stat:last-child { border-right: none; }
+.hero-full__stat-num {
+  font-family: var(--lm-font-display);
+  font-size: 22px;
+  font-weight: 900;
+  letter-spacing: -0.02em;
+  color: var(--lm-ink);
+  line-height: 1;
+}
+.hero-full__stat-num.accent { color: var(--lm-accent); }
+
+.hero-full__cmd {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: var(--lm-bg-card);
+  border: 1.5px solid var(--lm-border-heavy);
+  padding: 16px 20px;
+  font-family: var(--lm-font-mono);
+  font-size: 14.5px;
+  max-width: 960px;
+  margin-bottom: 28px;
+  position: relative;
+  overflow-x: auto;
+  white-space: nowrap;
+}
+.hero-full__cmd .dollar { color: var(--lm-ink-faint); flex-shrink: 0; user-select: none; }
+.hero-full__cmd .cmd { color: var(--lm-ink); flex: 1 1 auto; min-width: 0; }
+.hero-full__cmd .copy {
+  margin-left: auto;
+  background: var(--lm-bg);
+  border: 1.5px solid var(--lm-border-heavy);
+  color: var(--lm-ink);
+  padding: 6px 14px;
+  font-family: var(--lm-font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
   cursor: pointer;
-  user-select: none;
+  flex-shrink: 0;
   border-radius: 0;
   transition: background 0.12s ease, color 0.12s ease;
 }
-.hero__install .copy:hover { background: var(--lm-ink); color: var(--lm-bg); }
-.hero__install .copy.done { background: var(--lm-accent); color: white; border-color: var(--lm-accent); }
+.hero-full__cmd .copy:hover { background: var(--lm-ink); color: var(--lm-bg); }
+.hero-full__cmd .copy.done { background: var(--lm-accent); color: var(--lm-ink); border-color: var(--lm-ink); }
 
-.hero__ctas { display: flex; gap: 12px; flex-wrap: wrap; }
+.hero-full__ctas {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  max-width: 960px;
+}
+.hero-full__ctas .lm-btn {
+  min-height: 48px;
+  padding: 12px 22px;
+  font-size: 11.5px;
+  letter-spacing: 0.12em;
+}
+.hero-full__ctas .star-count {
+  margin-left: 4px;
+  background: var(--lm-bg);
+  color: var(--lm-ink);
+  padding: 2px 7px;
+  font-size: 10px;
+  border: 1.5px solid currentColor;
+  letter-spacing: 0.06em;
+}
+.hero-full__ctas .lm-btn--primary .star-count {
+  background: var(--lm-ink);
+  color: var(--lm-accent);
+  border-color: var(--lm-ink);
+}
 
 /* --- DEMO --- */
 .demo { display: block; max-width: 880px; }
@@ -561,42 +671,64 @@ footer.lm-footer .meta { color: var(--lm-ink-faint); text-transform: none; lette
       <a href="#features">Features</a>
       <a href="#compare">Compare</a>
       <a href="#agents">Agents</a>
-      <a href="https://github.com/VJ-yadav/localmem-public" class="lm-btn lm-btn--primary lm-btn--sm">GitHub</a>
+      <a href="https://github.com/VJ-yadav/localmem-public">GitHub</a>
+      <a href="https://www.npmjs.com/package/localmem-mcp">npm</a>
+      <a href="https://github.com/VJ-yadav/localmem-public/releases">Changelog</a>
     </div>
   </div>
 </nav>
 
-<main>
+<!-- HERO (full-width, lives outside main) -->
+<section class="hero-full" id="install">
+  <div class="hero-full__inner">
+    <div class="hero-full__eyebrow">NO CONTENT TELEMETRY &middot; v0.2.0 &middot; APACHE-2.0</div>
 
-  <!-- HERO -->
-  <section class="lm-section hero" id="install">
-    <span class="lm-pill lm-pill--solid">v0.2 &middot; Apache-2.0 &middot; MCP-native</span>
-    <h1 class="lm-h1">Memory that follows you<br>across every <span class="accent">AI tool</span>.</h1>
-    <p class="lm-lede">
-      Local-first. Open format. Yours. Single static Rust binary.
-      <strong>No content ever leaves your machine.</strong>
+    <h1 class="hero-full__brand">
+      <span class="stack">local<span class="a">&middot;</span></span>
+      <span class="stack">mem</span>
+    </h1>
+
+    <p class="hero-full__sub">
+      THE MEMORY LAYER YOUR CODING AGENT SHOULD HAVE HAD FROM DAY ONE.
+      CAPTURE ONCE. RECALL IN MILLISECONDS. NO CONTENT EVER LEAVES YOUR MACHINE.
     </p>
 
-    <div class="hero__badges">
-      <span class="lm-pill">event log = source of truth</span>
-      <span class="lm-pill">zero content telemetry</span>
-      <span class="lm-pill">bitemporal facts</span>
-      <span class="lm-pill">6 MCP tools (narrow + auditable)</span>
-      <span class="lm-pill">1 Rust binary</span>
+    <div class="hero-full__stats">
+      <div class="hero-full__stat">
+        <span class="hero-full__stat-num">6</span>
+        <span>MCP tools</span>
+      </div>
+      <div class="hero-full__stat">
+        <span class="hero-full__stat-num">1</span>
+        <span>Rust binary</span>
+      </div>
+      <div class="hero-full__stat">
+        <span class="hero-full__stat-num accent">0</span>
+        <span>cloud calls</span>
+      </div>
+      <div class="hero-full__stat">
+        <span class="hero-full__stat-num">&infin;</span>
+        <span>replayable</span>
+      </div>
     </div>
 
-    <div class="hero__install">
-      <button class="copy" type="button" onclick="copyInstall(this)">copy</button><span class="p">$ </span>curl -fsSL https://localmem.org/install | sh
-<span class="p">$ </span>localmem init &amp;&amp; localmem fetch-model &amp;&amp; localmem serve &amp;
-<span class="p">$ </span>localmem mcp install --client claude
-<span class="c"># works with Claude Desktop, Claude Code, Cursor, Cline, Windsurf, any MCP client</span></div>
-
-    <div class="hero__ctas">
-      <a class="lm-btn lm-btn--primary lm-btn--lg" href="https://github.com/VJ-yadav/localmem-public#install">Get started</a>
-      <a class="lm-btn lm-btn--lg" href="https://github.com/VJ-yadav/localmem-public/blob/main/docs/HOW_IT_WORKS.md">User guide</a>
-      <a class="lm-btn lm-btn--lg" href="https://github.com/VJ-yadav/localmem-public/blob/main/docs/SHARED_MEMORY_FOR_AGENTS.md">Multi-agent walkthrough</a>
+    <div class="hero-full__cmd">
+      <span class="dollar">$</span>
+      <span class="cmd">curl -fsSL https://localmem.org/install | sh</span>
+      <button class="copy" type="button" onclick="copyText(this, 'curl -fsSL https://localmem.org/install | sh')">click to copy</button>
     </div>
-  </section>
+
+    <div class="hero-full__ctas">
+      <a class="lm-btn lm-btn--primary" href="https://github.com/VJ-yadav/localmem-public#install">&#9656; Install</a>
+      <a class="lm-btn" href="https://github.com/VJ-yadav/localmem-public">&#9733; GitHub <span class="star-count" id="gh-stars">&middot;&middot;</span></a>
+      <a class="lm-btn" href="https://github.com/VJ-yadav/localmem-public/stargazers">&#9734; Star</a>
+      <a class="lm-btn" href="https://www.npmjs.com/package/localmem-mcp">&#9656; npm</a>
+      <a class="lm-btn" href="#demo">&#9656; See it move</a>
+    </div>
+  </div>
+</section>
+
+<main>
 
   <!-- DEMO -->
   <section class="lm-section" id="demo">
@@ -792,18 +924,34 @@ $ localmem search "what language do I prefer"</pre>
 </footer>
 
 <script>
-function copyInstall(btn) {
-  var pre = btn.parentElement;
-  var text = pre.innerText.replace(/^copy\n/, '').replace(/^\$ /gm, '');
+function copyText(btn, text) {
   navigator.clipboard.writeText(text).then(function() {
+    var orig = btn.textContent;
     btn.textContent = 'copied!';
     btn.classList.add('done');
     setTimeout(function() {
-      btn.textContent = 'copy';
+      btn.textContent = orig;
       btn.classList.remove('done');
     }, 1800);
   });
 }
+function copyInstall(btn) {
+  var pre = btn.parentElement;
+  var text = pre.innerText.replace(/^copy\n/, '').replace(/^\$ /gm, '');
+  copyText(btn, text);
+}
+(function loadStars() {
+  var el = document.getElementById('gh-stars');
+  if (!el) return;
+  fetch('https://api.github.com/repos/VJ-yadav/localmem-public', { headers: { Accept: 'application/vnd.github+json' } })
+    .then(function(r) { return r.ok ? r.json() : null; })
+    .then(function(j) {
+      if (!j || typeof j.stargazers_count !== 'number') return;
+      var n = j.stargazers_count;
+      el.textContent = n >= 1000 ? (n / 1000).toFixed(1) + 'k' : String(n);
+    })
+    .catch(function() {});
+})();
 </script>
 </body>
 </html>

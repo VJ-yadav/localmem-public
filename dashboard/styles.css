@@ -202,13 +202,17 @@ button, input, select { font: inherit; }
 
 .lm-btn--primary {
   background: var(--lm-accent);
-  color: white;
-  border-color: var(--lm-accent);
+  color: var(--lm-ink);
+  border-color: var(--lm-ink);
 }
 .lm-btn--primary:hover {
   background: var(--lm-accent-strong);
-  color: white;
-  border-color: var(--lm-accent-strong);
+  color: var(--lm-ink);
+  border-color: var(--lm-ink);
+}
+@media (prefers-color-scheme: dark) {
+  .lm-btn--primary { color: #0a0a0a; border-color: #0a0a0a; }
+  .lm-btn--primary:hover { color: #0a0a0a; border-color: #0a0a0a; }
 }
 
 .lm-btn--ghost {
@@ -264,7 +268,7 @@ button, input, select { font: inherit; }
   display: inline-flex;
   align-items: center;
   background: var(--lm-accent);
-  color: white;
+  color: var(--lm-ink);
   padding: 2px 7px;
   font-family: var(--lm-font-mono);
   font-size: 9px;
@@ -618,13 +622,15 @@ h2 {
   line-height: 1.5;
 }
 
-/* --- STORES LIST (uses lm-card-ish row) --- */
+/* --- STORES LIST (every row is a strict-flow card with 4 stacked rows) --- */
 
 #stores-list { list-style: none; padding: 0; margin: 0; }
 
 .store-row {
-  display: block;
-  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 14px 14px;
   border: var(--lm-border-w) solid var(--lm-border-light);
   margin-bottom: 8px;
   background: var(--lm-bg-card);
@@ -639,15 +645,15 @@ h2 {
   border-width: var(--lm-border-w-heavy);
 }
 
-/* Header line — label + count on one row, badge inline with label */
+/* ROW 1 — label + count */
 .store-row .store-top {
   display: flex;
   justify-content: space-between;
   align-items: center;
   gap: 8px;
-  margin-bottom: 6px;
   min-width: 0;
   min-height: 22px;
+  margin: 0;
 }
 .store-row .store-label {
   font-family: var(--lm-font-body);
@@ -659,22 +665,23 @@ h2 {
   align-items: center;
   gap: 7px;
   min-width: 0;
-  overflow: hidden;
   flex: 1 1 auto;
+  overflow: hidden;
 }
 .store-row .store-label > span:first-child {
-  /* the text node sits in an anonymous span we now wrap explicitly */
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   min-width: 0;
+  flex: 0 1 auto;
 }
 .store-row.active .store-label { color: var(--lm-accent-strong); }
 @media (prefers-color-scheme: dark) {
   .store-row.active .store-label { color: var(--lm-accent); }
 }
 
-.store-row .store-meta {
+/* Mono mini-text inside row 1 (count) */
+.store-row .store-top .store-meta {
   font-family: var(--lm-font-mono);
   font-size: 10px;
   color: var(--lm-ink-faint);
@@ -683,38 +690,56 @@ h2 {
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.06em;
-}
-.store-row.active .store-meta { color: var(--lm-accent-strong); }
-@media (prefers-color-scheme: dark) {
-  .store-row.active .store-meta { color: var(--lm-accent); }
+  display: inline;
+  margin: 0;
 }
 
-/* Path row — truncate from start so the END of long paths stays visible */
+/* ROW 2 — path (truncated from start so the END stays visible) */
 .store-row .store-path {
+  display: block;
   font-family: var(--lm-font-mono);
   font-size: 10.5px;
   color: var(--lm-ink-faint);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  margin: 0 0 6px;
+  margin: 0;
   direction: rtl;
   text-align: left;
   unicode-bidi: plaintext;
   max-width: 100%;
 }
 
-/* Bottom-meta row (size · time) */
-.store-row > .store-meta { display: block; margin-bottom: 8px; }
+/* ROW 3 — bottom mono meta (size · time) */
+.store-row > .store-meta {
+  display: block;
+  font-family: var(--lm-font-mono);
+  font-size: 10px;
+  color: var(--lm-ink-faint);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.store-row.active > .store-meta { color: var(--lm-accent-strong); }
+@media (prefers-color-scheme: dark) {
+  .store-row.active > .store-meta { color: var(--lm-accent); }
+}
 
+/* ROW 4 — actions (button) */
 .store-row .store-actions {
-  margin-top: 10px;
-  display: flex;
+  display: block;
+  margin: 4px 0 0;
   width: 100%;
 }
-.store-row .store-actions .lm-btn,
-.store-row .store-actions .btn {
+.store-row .store-actions .btn,
+.store-row .store-actions .lm-btn {
+  display: flex;
   width: 100%;
+  margin: 0;
 }
 
 /* Legacy active-marker → use .lm-badge visuals */
@@ -722,7 +747,7 @@ h2 {
   display: inline-flex;
   align-items: center;
   background: var(--lm-accent);
-  color: white;
+  color: var(--lm-ink);
   padding: 2px 7px;
   font-family: var(--lm-font-mono);
   font-size: 9px;
@@ -876,13 +901,17 @@ h2 {
 .btn-sm { min-height: 28px; padding: 5px 11px; font-size: 10px; }
 .btn-primary {
   background: var(--lm-accent);
-  color: white;
-  border-color: var(--lm-accent);
+  color: var(--lm-ink);
+  border-color: var(--lm-ink);
 }
 .btn-primary:hover {
   background: var(--lm-accent-strong);
-  color: white;
-  border-color: var(--lm-accent-strong);
+  color: var(--lm-ink);
+  border-color: var(--lm-ink);
+}
+@media (prefers-color-scheme: dark) {
+  .btn-primary { color: #0a0a0a; border-color: #0a0a0a; }
+  .btn-primary:hover { color: #0a0a0a; border-color: #0a0a0a; }
 }
 .btn:disabled, .btn.is-loading { opacity: 0.5; cursor: not-allowed; }
 
