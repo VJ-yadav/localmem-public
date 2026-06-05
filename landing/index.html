@@ -375,15 +375,17 @@ section.lm-section:first-of-type { border-top: none; }
 
 .hero-full__sub {
   font-family: var(--lm-font-display);
-  font-size: clamp(15px, 1.7vw, 21px);
-  font-weight: 700;
+  font-size: clamp(18px, 2.1vw, 26px);
+  font-weight: 500;
   line-height: 1.4;
-  letter-spacing: 0.005em;
-  color: var(--lm-ink);
-  text-transform: uppercase;
-  max-width: 920px;
-  margin: 0 auto 36px;
+  letter-spacing: -0.005em;
+  color: var(--lm-ink-secondary);
+  text-transform: none;
+  max-width: 760px;
+  margin: 0 auto 40px;
 }
+.hero-full__sub .accent { color: var(--lm-accent-strong); font-weight: 700; }
+@media (prefers-color-scheme: dark) { .hero-full__sub .accent { color: var(--lm-accent); } }
 
 .hero-full__stats {
   display: flex;
@@ -463,9 +465,21 @@ section.lm-section:first-of-type { border-top: none; }
   flex-wrap: wrap;
   gap: 10px;
   max-width: 920px;
-  margin: 0 auto;
+  margin: 0 auto 24px;
   justify-content: center;
 }
+
+/* Real GitHub Star / Fork / Follow buttons (auth-and-act) */
+.hero-full__ghbtns {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  justify-content: center;
+  align-items: center;
+  margin-top: 4px;
+  min-height: 32px;
+}
+.hero-full__ghbtns .github-button { line-height: 1; }
 .hero-full__ctas .lm-btn {
   min-height: 48px;
   padding: 12px 22px;
@@ -913,28 +927,8 @@ footer.lm-footer .meta { color: var(--lm-ink-faint); text-transform: none; lette
     <h1 class="hero-full__brand">local<span class="a">&middot;</span>mem</h1>
 
     <p class="hero-full__sub">
-      THE MEMORY LAYER YOUR CODING AGENT SHOULD HAVE HAD FROM DAY ONE.
-      CAPTURE ONCE. RECALL IN MILLISECONDS. NO CONTENT EVER LEAVES YOUR MACHINE.
+      your agent's memory &mdash; <span class="accent">written to a file you own</span>.
     </p>
-
-    <div class="hero-full__stats">
-      <div class="hero-full__stat">
-        <span class="hero-full__stat-num">6</span>
-        <span>MCP tools</span>
-      </div>
-      <div class="hero-full__stat">
-        <span class="hero-full__stat-num">1</span>
-        <span>Rust binary</span>
-      </div>
-      <div class="hero-full__stat">
-        <span class="hero-full__stat-num accent">0</span>
-        <span>cloud calls</span>
-      </div>
-      <div class="hero-full__stat">
-        <span class="hero-full__stat-num">&infin;</span>
-        <span>replayable</span>
-      </div>
-    </div>
 
     <div class="hero-full__cmd">
       <span class="dollar">$</span>
@@ -942,12 +936,23 @@ footer.lm-footer .meta { color: var(--lm-ink-faint); text-transform: none; lette
       <button class="copy" type="button" onclick="copyText(this, 'curl -fsSL https://localmem.org/install | sh')">click to copy</button>
     </div>
 
+    <div class="hero-full__cmd">
+      <span class="dollar">$</span>
+      <span class="cmd">npm install -g localmem-mcp</span>
+      <button class="copy" type="button" onclick="copyText(this, 'npm install -g localmem-mcp')">click to copy</button>
+    </div>
+
     <div class="hero-full__ctas">
       <a class="lm-btn lm-btn--primary" href="#ship-it">&#9656; Install</a>
-      <a class="lm-btn" href="https://github.com/VJ-yadav/localmem-public">&#9733; GitHub <span class="star-count" id="gh-stars">&middot;&middot;</span></a>
-      <a class="lm-btn" href="https://github.com/VJ-yadav/localmem-public/stargazers">&#9734; Star</a>
+      <a class="lm-btn" href="https://github.com/VJ-yadav/localmem-public">&#9656; GitHub</a>
       <a class="lm-btn" href="https://www.npmjs.com/package/localmem-mcp">&#9656; npm</a>
-      <a class="lm-btn" href="#demo">&#9656; See it move</a>
+      <a class="lm-btn" href="#demo">&#9656; The replay demo</a>
+    </div>
+
+    <div class="hero-full__ghbtns">
+      <a class="github-button" href="https://github.com/VJ-yadav/localmem-public" data-icon="octicon-star" data-size="large" data-show-count="true" aria-label="Star VJ-yadav/localmem-public on GitHub">Star</a>
+      <a class="github-button" href="https://github.com/VJ-yadav/localmem-public/fork" data-icon="octicon-repo-forked" data-size="large" data-show-count="true" aria-label="Fork VJ-yadav/localmem-public on GitHub">Fork</a>
+      <a class="github-button" href="https://github.com/VJ-yadav" data-size="large" data-show-count="true" aria-label="Follow @VJ-yadav on GitHub">Follow @VJ-yadav</a>
     </div>
   </div>
 </section>
@@ -955,10 +960,10 @@ footer.lm-footer .meta { color: var(--lm-ink-faint); text-transform: none; lette
 <!-- SHIP IT (full-width, mirrors hero band) -->
 <section class="ship-it" id="ship-it">
   <div class="ship-it__inner">
-    <div class="ship-it__eyebrow">Ship it</div>
-    <h2 class="ship-it__title">One install.<br>Any agent.</h2>
+    <div class="ship-it__eyebrow">Set up</div>
+    <h2 class="ship-it__title">Two commands.<br>Any MCP client.</h2>
     <p class="ship-it__sub">
-      Runs on your machine. Data stays local. Works with Claude Desktop, Claude Code, Cursor, Cline, Windsurf, and any MCP-compatible client.
+      Installs a single Rust binary into <code>/usr/local/bin</code>. Starts a local HTTP core on :8765. Wires up any MCP-compatible agent with one more line.
     </p>
 
     <!-- Step 1 -->
@@ -1259,18 +1264,8 @@ function copyInstall(btn) {
   var text = pre.innerText.replace(/^copy\n/, '').replace(/^\$ /gm, '');
   copyText(btn, text);
 }
-(function loadStars() {
-  var el = document.getElementById('gh-stars');
-  if (!el) return;
-  fetch('https://api.github.com/repos/VJ-yadav/localmem-public', { headers: { Accept: 'application/vnd.github+json' } })
-    .then(function(r) { return r.ok ? r.json() : null; })
-    .then(function(j) {
-      if (!j || typeof j.stargazers_count !== 'number') return;
-      var n = j.stargazers_count;
-      el.textContent = n >= 1000 ? (n / 1000).toFixed(1) + 'k' : String(n);
-    })
-    .catch(function() {});
-})();
+// (legacy api.github.com poll removed — real github buttons widget below handles star count + auth)
 </script>
+<script async defer src="https://buttons.github.io/buttons.js"></script>
 </body>
 </html>
