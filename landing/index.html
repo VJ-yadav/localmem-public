@@ -211,6 +211,65 @@ code {
   flex-shrink: 0;
 }
 
+/* --- COMPONENT: CHIP (bordered inline label, used in tool lists) --- */
+.lm-chip {
+  display: inline-block;
+  background: var(--lm-bg-card);
+  border: 1.5px solid var(--lm-border-light);
+  color: var(--lm-ink);
+  padding: 2px 10px;
+  margin: 0 3px;
+  font-family: var(--lm-font-mono);
+  font-size: inherit;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  vertical-align: 1px;
+  line-height: 1.45;
+}
+
+/* --- COMPONENT: COUNTER (colored leading num + label, GH-button-shaped) --- */
+.lm-counter {
+  display: inline-flex;
+  align-items: stretch;
+  height: 28px;
+  padding: 0;
+  background: var(--lm-bg-card);
+  border: 1px solid var(--lm-border-heavy);
+  border-radius: 6px;
+  font-family: var(--lm-font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--lm-ink);
+  line-height: 1;
+  overflow: hidden;
+}
+.lm-counter__num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 28px;
+  padding: 0 8px;
+  background: var(--lm-accent);
+  color: var(--lm-ink);
+  font-family: var(--lm-font-display);
+  font-size: 13px;
+  font-weight: 900;
+  letter-spacing: -0.01em;
+  line-height: 1;
+  border-right: 1px solid var(--lm-border-heavy);
+}
+.lm-counter__label {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 12px;
+  white-space: nowrap;
+  color: var(--lm-ink);
+}
+.lm-counter__label .faint { color: var(--lm-ink); margin-left: 4px; opacity: 0.55; }
+
 /* --- COMPONENT: CARD --- */
 .lm-card {
   display: block;
@@ -370,11 +429,14 @@ section.lm-section:first-of-type { border-top: none; }
   margin: 0 0 30px;
   text-transform: lowercase;
   white-space: nowrap;
+  -webkit-text-stroke: 1.25px var(--lm-ink);
+  paint-order: stroke fill;
 }
 .hero-full__brand .a {
   color: var(--lm-accent);
   margin: 0 0.06em;
   font-weight: 900;
+  -webkit-text-stroke: 1.25px var(--lm-accent);
 }
 
 .hero-full__sub {
@@ -386,10 +448,30 @@ section.lm-section:first-of-type { border-top: none; }
   color: var(--lm-ink-secondary);
   text-transform: none;
   max-width: 760px;
-  margin: 0 auto 40px;
+  margin: 0 auto 18px;
 }
 .hero-full__sub .accent { color: var(--lm-accent-strong); font-weight: 700; }
 @media (prefers-color-scheme: dark) { .hero-full__sub .accent { color: var(--lm-accent); } }
+
+.hero-full__sub-tech {
+  font-family: var(--lm-font-mono);
+  font-size: clamp(14px, 1.5vw, 18px);
+  font-weight: 700;
+  line-height: 1.5;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--lm-ink-faint);
+  max-width: 1280px;
+  margin: 0 auto 40px;
+  white-space: nowrap;
+  overflow-x: auto;
+  padding: 6px 8px;
+  scrollbar-width: thin;
+}
+.hero-full__sub-tech::-webkit-scrollbar { height: 4px; }
+.hero-full__sub-tech::-webkit-scrollbar-thumb { background: var(--lm-border-light); }
+.hero-full__sub-tech .lead { color: var(--lm-accent-strong); margin-right: 8px; }
+@media (prefers-color-scheme: dark) { .hero-full__sub-tech .lead { color: var(--lm-accent); } }
 
 .hero-full__stats {
   display: flex;
@@ -433,16 +515,17 @@ section.lm-section:first-of-type { border-top: none; }
   gap: 12px;
   background: var(--lm-bg-card);
   border: 1.5px solid var(--lm-border-heavy);
-  padding: 16px 20px;
+  padding: 14px 18px;
   font-family: var(--lm-font-mono);
-  font-size: 14.5px;
-  max-width: 920px;
-  margin: 0 auto 24px;
+  font-size: 13.5px;
+  max-width: 680px;
+  margin: 0 auto 14px;
   position: relative;
   overflow-x: auto;
   white-space: nowrap;
   text-align: left;
 }
+.hero-full__cmd + .hero-full__cmd { margin-bottom: 24px; }
 .hero-full__cmd .dollar { color: var(--lm-ink-faint); flex-shrink: 0; user-select: none; }
 .hero-full__cmd .cmd { color: var(--lm-ink); flex: 1 1 auto; min-width: 0; }
 .hero-full__cmd .copy {
@@ -485,38 +568,7 @@ section.lm-section:first-of-type { border-top: none; }
 }
 .hero-full__ghbtns .github-button { line-height: 1; }
 
-.since-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-  padding: 6px 14px 6px 10px;
-  background: var(--lm-bg-card);
-  border: 1.5px solid var(--lm-border-heavy);
-  font-family: var(--lm-font-mono);
-  font-size: 10.5px;
-  font-weight: 700;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: var(--lm-ink-faint);
-  line-height: 1;
-}
-.since-pill__num {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 28px;
-  padding: 5px 8px;
-  background: var(--lm-accent);
-  color: var(--lm-ink);
-  font-family: var(--lm-font-display);
-  font-size: 14px;
-  font-weight: 900;
-  letter-spacing: -0.01em;
-  line-height: 1;
-  border: 1.5px solid var(--lm-ink);
-}
-.since-pill__label { white-space: nowrap; color: var(--lm-ink); }
-.since-pill__label .faint { color: var(--lm-ink-faint); margin-left: 4px; }
+/* (.since-pill, .tool: removed — use .lm-counter / .lm-chip global components) */
 .hero-full__ctas .lm-btn {
   min-height: 48px;
   padding: 12px 22px;
@@ -966,12 +1018,10 @@ footer.lm-footer .meta { color: var(--lm-ink-faint); text-transform: none; lette
     <p class="hero-full__sub">
       your agent's memory, <span class="accent">written to a file you own</span>.
     </p>
-
-    <div class="hero-full__cmd">
-      <span class="dollar">$</span>
-      <span class="cmd">curl -fsSL https://localmem.org/install | sh</span>
-      <button class="copy" type="button" onclick="copyText(this, 'curl -fsSL https://localmem.org/install | sh')">click to copy</button>
-    </div>
+    <p class="hero-full__sub-tech">
+      <span class="lead">For devs.</span>
+      One local file. <span class="lm-chip">Claude Code</span> <span class="lm-chip">Cursor</span> <span class="lm-chip">Cline</span> <span class="lm-chip">Windsurf</span> <span class="lm-chip">Codex CLI</span> <span class="lm-chip">Claude Desktop</span> read the same memory.
+    </p>
 
     <div class="hero-full__cmd">
       <span class="dollar">$</span>
@@ -990,9 +1040,9 @@ footer.lm-footer .meta { color: var(--lm-ink-faint); text-transform: none; lette
       <a class="github-button" href="https://github.com/VJ-yadav/localmem-public" data-icon="octicon-star" data-size="large" data-show-count="true" aria-label="Star VJ-yadav/localmem-public on GitHub">Star</a>
       <a class="github-button" href="https://github.com/VJ-yadav/localmem-public/fork" data-icon="octicon-repo-forked" data-size="large" data-show-count="true" aria-label="Fork VJ-yadav/localmem-public on GitHub">Fork</a>
       <a class="github-button" href="https://github.com/VJ-yadav" data-size="large" data-show-count="true" aria-label="Follow @VJ-yadav on GitHub">Follow @VJ-yadav</a>
-      <span class="since-pill" title="Open-sourced 5 Jun 2026">
-        <span class="since-pill__num" id="since-days">1</span>
-        <span class="since-pill__label">days public <span class="faint">since 5 Jun 2026</span></span>
+      <span class="lm-counter" title="Open-sourced 5 Jun 2026">
+        <span class="lm-counter__num" id="since-days">1</span>
+        <span class="lm-counter__label">days public <span class="faint">since 5 Jun 2026</span></span>
       </span>
     </div>
   </div>

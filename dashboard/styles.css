@@ -281,6 +281,67 @@ button, input, select { font: inherit; }
   white-space: nowrap;
 }
 
+/* --- CHIP (lm-chip) — bordered inline label, used in tool lists --------- */
+
+.lm-chip {
+  display: inline-block;
+  background: var(--lm-bg-card);
+  border: 1.5px solid var(--lm-border-light);
+  color: var(--lm-ink);
+  padding: 2px 10px;
+  margin: 0 3px;
+  font-family: var(--lm-font-mono);
+  font-size: inherit;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  vertical-align: 1px;
+  line-height: 1.45;
+}
+
+/* --- COUNTER (lm-counter) — colored leading num + label, GH-button-shaped --- */
+
+.lm-counter {
+  display: inline-flex;
+  align-items: stretch;
+  height: 28px;
+  padding: 0;
+  background: var(--lm-bg-card);
+  border: 1px solid var(--lm-border-heavy);
+  border-radius: 6px;
+  font-family: var(--lm-font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--lm-ink);
+  line-height: 1;
+  overflow: hidden;
+}
+.lm-counter__num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 28px;
+  padding: 0 8px;
+  background: var(--lm-accent);
+  color: var(--lm-ink);
+  font-family: var(--lm-font-display);
+  font-size: 13px;
+  font-weight: 900;
+  letter-spacing: -0.01em;
+  line-height: 1;
+  border-right: 1px solid var(--lm-border-heavy);
+}
+.lm-counter__label {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 12px;
+  white-space: nowrap;
+  color: var(--lm-ink);
+}
+.lm-counter__label .faint { color: var(--lm-ink); margin-left: 4px; opacity: 0.55; }
+
 /* --- CARD (lm-card) ----------------------------------------------------- */
 
 .lm-card {
