@@ -107,8 +107,7 @@ everywhere.
 
 The substrate is open: append-only JSONL events, recomputable derived
 stores, bitemporal facts, an audit journal of every policy decision.
-Apache-2.0 today (FOSS forever — the specific license may evolve to dual
-AGPL+commercial per `docs/LICENSING.md`). When sync arrives in v0.2, it
+Apache-2.0 today, FOSS forever. When sync arrives in a future release, it
 is end-to-end encrypted, opt-in, ciphertext only. We never see plaintext.
 
 ## Why the cloud incumbents cannot follow

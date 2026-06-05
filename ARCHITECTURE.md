@@ -24,8 +24,9 @@ the v0.2 additions sit on top of it.
 7. **MCP is the only public interface.** The binary exposes MCP tools. We do
    not invent our own protocol.
 
-These principles were learned the expensive way from rehearse, StudentSucceed,
-and earlier projects. See `docs/LEARNINGS.md` for the receipts.
+These principles were learned the expensive way from prior systems with
+similar shape. Each one earned its place by avoiding a specific failure
+mode in production.
 
 ## High-level shape
 
@@ -275,11 +276,8 @@ local ONNX embeddings, not cloud calls; use LanceDB, not Chroma).
 # v0.2 additions
 
 Everything above is the v0.1 contract and remains in force. v0.2 only
-extends, never breaks: a `events.jsonl` written by v0.1 replays
-identically under v0.2 ([`SPEC_V0_2.md`](SPEC_V0_2.md) invariant 7).
-The strategic motivation lives in [`MOAT.md`](MOAT.md); the user-facing
-contract in [`SPEC_V0_2.md`](SPEC_V0_2.md); the build plan in
-[`TASKS.md`](TASKS.md); shipped capabilities are tagged inline below.
+extends, never breaks: an `events.jsonl` written by v0.1 replays
+identically under v0.2. Shipped capabilities are tagged inline below.
 
 ## What v0.2 adds (functional summary)
 

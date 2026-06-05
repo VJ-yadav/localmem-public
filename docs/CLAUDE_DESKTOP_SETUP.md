@@ -112,5 +112,4 @@ The capture text should appear in the results.
   intended production path).
 - **Tools show but every call fails**: enable verbose logging with
   `RUST_LOG=localmem=debug localmem serve` and watch for the error
-  code in the response envelope. The `code` field is stable and
-  documented in SPEC.md.
+  code in the response envelope. The `code` field is stable.

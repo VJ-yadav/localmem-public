@@ -676,7 +676,7 @@ your memory still works.
 The OSS core continues to work without any paid feature enabled. The paid
 tier is opt-in by design.
 
-See [MOAT.md](../MOAT.md) for the full open-core boundary.
+The OSS core works without any paid feature; the paid tier is opt-in.
 
 ---
 
@@ -684,16 +684,13 @@ See [MOAT.md](../MOAT.md) for the full open-core boundary.
 
 ### Next-up after v0.2
 
-- **v0.2.1** — Personal Cloud sync (Cloudflare Workers + R2), Hosted Intelligence endpoint, MCP registry listing live.
-- **v0.3** — MMR re-ranker, scope hierarchy on container tags, `localmem supersede` as a clean primitive, local web dashboard.
-- **v0.4** — Multi-modal: audio, OCR, PDF ingestion (Hosted Intelligence handles the heavy LLM bits, local extractor falls back).
-
-Full task breakdown: [TASKS.md](../TASKS.md).
+- **v0.2.1** — Personal Cloud sync (E2E encrypted), Hosted Intelligence endpoint for heavy multimodal ingestion, MCP registry listing.
+- **Beyond:** MMR re-ranker, scope hierarchy on container tags, `localmem supersede` as a clean primitive, local web dashboard, multimodal (audio / OCR / PDF) ingestion.
 
 ### Contributing
 
-Issues welcome. PRs welcome for documented bugs and tasks already filed in
-TASKS.md. Larger changes: open an issue first to discuss.
+Issues welcome. Pull requests welcome — for larger changes, open an
+issue first so we can discuss the approach.
 
 The most valuable thing you can do is **install, use it for a week, and write
 up the friction** in `docs/feedback/`. The two field-feedback reports that

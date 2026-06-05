@@ -63,7 +63,7 @@ LOCALMEM_INSTALL_DIR="$HOME/bin" curl -fsSL https://localmem.co/install | sh
 | macOS | Intel (x86_64) | ✅ supported |
 | Linux | x86_64 | ✅ supported |
 | Linux | aarch64 | ✅ supported |
-| Windows | any | ⏳ deferred to v0.2 (per SPEC.md) |
+| Windows | any | ⏳ planned for a future release |
 
 ## Updating
 
