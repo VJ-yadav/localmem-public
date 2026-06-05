@@ -54,10 +54,20 @@ async function checkConnection() {
   $("endpoint-label").innerHTML = `connected to <code>${API}</code>`;
   $("help-endpoint").textContent = API;
   try {
-    await api("/healthz");
+    await api("/health");
     const pill = $("conn-pill");
     pill.textContent = "connected";
     pill.className = "pill pill-ok";
+    // Best-effort: show the version pill if /version is available.
+    try {
+      const v = await api("/version");
+      const versionStr = (v && (v.version || v.localmem_version)) || "";
+      if (versionStr) {
+        const vpill = $("version-pill");
+        vpill.textContent = `v${String(versionStr).replace(/^v/, "")}`;
+        vpill.hidden = false;
+      }
+    } catch { /* /version may not exist on older cores; ignore */ }
     return true;
   } catch (err) {
     const pill = $("conn-pill");
@@ -162,23 +172,24 @@ async function runSearch(query) {
   setText("detail-title", `Search results`);
   const detail = $("detail");
   detail.innerHTML = `<p class="hint">searching for <code>${escapeHtml(query)}</code>&hellip;</p>`;
-  const mode = $("search-mode").value;
   try {
+    // The HTTP /search endpoint is hybrid-only (BM25 + ANN + RRF).
+    // The CLI `--mode lex` etc. are CLI-side flags only.
     const data = await api("/search", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ query, k: 10, mode })
+      body: JSON.stringify({ query, k: 10 })
     });
-    const hits = data.results || data.hits || [];
+    const hits = data.results || [];
     if (hits.length === 0) {
-      detail.innerHTML = `<p class="hint">no results for <code>${escapeHtml(query)}</code> in <code>${mode}</code> mode.</p>`;
+      detail.innerHTML = `<p class="hint">no hybrid-search results for <code>${escapeHtml(query)}</code>.</p>`;
       return;
     }
     detail.innerHTML = hits.map((h, i) => `
       <div class="result-card">
         <span class="result-score">[${i + 1}] score=${(h.score ?? 0).toFixed(3)}</span>
-        <p class="result-snippet">${escapeHtml(h.snippet || h.fact || h.content || h.text || "")}</p>
-        <span class="result-id">${escapeHtml(h.event_id || h.id || "")}</span>
+        <p class="result-snippet">${escapeHtml(h.fact || "")}</p>
+        <span class="result-id">${escapeHtml((h.sources && h.sources[0]) || "")}</span>
       </div>
     `).join("");
   } catch (err) {
@@ -210,7 +221,7 @@ async function selectSubject(subject) {
     detail.innerHTML = facts.map(f => `
       <div class="result-card">
         <p class="result-snippet"><strong>${escapeHtml(f.predicate || "")}</strong> ${escapeHtml(f.object || "")}</p>
-        <span class="result-id">${escapeHtml(f.id || f.event_id || "")} ${f.retired_at ? "(retired)" : ""}</span>
+        <span class="result-id">${escapeHtml((f.sources && f.sources[0]) || "")} ${f.valid_to ? "(retired)" : ""}</span>
       </div>
     `).join("");
   } catch (err) {
@@ -232,13 +243,15 @@ async function selectTag(key, value) {
   try {
     // Use search with tag filter as the filtering primitive — the
     // resource/recent endpoint doesn't accept a tag filter today.
-    // Quick heuristic: empty query => return everything sorted by recency.
+    // The HTTP /search endpoint expects a non-empty query string;
+    // we send a single wildcard char and rely on the tag filter to
+    // narrow.
     const data = await api("/search", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ query: "*", k: 25, mode: "lex", tags: { [key]: value } })
+      body: JSON.stringify({ query: "*", k: 25, tags: { [key]: value } })
     });
-    const hits = data.results || data.hits || [];
+    const hits = data.results || [];
     if (hits.length === 0) {
       feed.innerHTML = `<div class="empty">no captures matching that tag.</div>`;
       return;
@@ -246,11 +259,10 @@ async function selectTag(key, value) {
     feed.innerHTML = hits.map(h => `
       <article class="capture-card">
         <div class="capture-head">
-          <span class="kind-chip ${kindClass(h.kind)}">${escapeHtml(h.kind || "note")}</span>
-          <span class="capture-ts" title="${escapeHtml(h.ts || "")}">${h.ts ? timeAgo(h.ts) : ""}</span>
+          <span class="kind-chip kind-note">tagged</span>
+          <span class="capture-ts">${escapeHtml((h.sources && h.sources[0]) || "")}</span>
         </div>
-        <div class="capture-text">${escapeHtml(h.snippet || h.text || "")}</div>
-        <div class="capture-id">${escapeHtml(h.event_id || "")}</div>
+        <div class="capture-text">${escapeHtml(h.fact || "")}</div>
       </article>
     `).join("");
   } catch (err) {
