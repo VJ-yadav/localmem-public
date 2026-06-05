@@ -1,0 +1,44 @@
+# Rust
+/core/target/
+**/*.rs.bk
+Cargo.lock.bak
+
+# Node / Bun
+node_modules/
+dist/
+*.tsbuildinfo
+.npm/
+.bun/
+
+# Local data (NEVER commit a real user's memory)
+.localmem/
+*.jsonl.local
+*.duckdb
+*.lance/
+*.tantivy/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editors
+.vscode/
+.idea/
+*.swp
+
+# Env
+.env
+.env.local
+.env.*.local
+
+# Build artifacts
+*.log
+*.pid
+
+# Local Claude Code state (never commit personal permissions / hardcoded paths)
+.claude/
+.mcp.json
+
+# Broken / WIP scripts kept locally only
+scripts/build-html.js
+scripts/build-pdf.js

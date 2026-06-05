@@ -1,0 +1,33 @@
+# localmem write policy: shipped defaults.
+# See ARCHITECTURE.md "Write policy" and SPEC.md.
+#
+# Rules are evaluated in order. The first rule whose `when` clause matches
+# the incoming capture sets the decision. If no rule matches, the policy
+# engine emits SKIP under the synthetic `default_skip` rule.
+#
+# Override individual rules by id in <localmem-home>/policies/user.yaml.
+# A user rule whose id matches a default replaces it in place; a new id
+# is appended at the end.
+
+rules:
+  - id: forget_pii
+    when:
+      content_matches_any:
+        # US SSN: three-two-four digit groups separated by dashes.
+        - '\b\d{3}-\d{2}-\d{4}\b'
+        # Credit/debit card: 13 to 19 digits, optionally split by spaces or dashes.
+        - '\b(?:\d[ -]?){12,18}\d\b'
+    action: FORGET
+    reasoning: detected PII pattern (SSN or credit card)
+
+  - id: dedup
+    when:
+      exact_match_within_seconds: 60
+    action: DEDUP
+    reasoning: exact-content duplicate of a recent capture
+
+  - id: high_signal
+    when:
+      min_content_length: 20
+    action: COMMIT
+    reasoning: capture above minimum content length

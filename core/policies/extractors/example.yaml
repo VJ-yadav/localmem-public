@@ -1,0 +1,41 @@
+# localmem custom YAML extractor — example (T-59)
+#
+# Copy this file into <home>/policies/extractors/ to enable a custom
+# extractor. The registry scans that directory at server/CLI startup
+# and loads every `*.yaml` (or `*.yml`) file as its own Extractor.
+# A broken file is a LOUD failure — the binary refuses to start
+# rather than silently dropping your extraction rules.
+#
+# Schema:
+#   id:        Required, non-empty. Surfaced as `yaml:<id>` in the
+#              `Extractor::name()` slug for audit traces.
+#   patterns:  Required list. Each entry is one (regex, fact) pair.
+#              Patterns are tried in declaration order; the FIRST
+#              match fires and the rest are skipped.
+#
+# Per pattern:
+#   regex:     Required. Any regex the `regex` crate accepts. Use
+#              `(?i)` for case-insensitive matching. Anchor with
+#              `^` and `$` to avoid spurious mid-sentence matches.
+#   fact.subject, fact.predicate, fact.object:
+#              Required. Templates can include `{{capture[N]}}`
+#              where N=0 is the whole match and N=1.. are
+#              parenthesised capture groups. References beyond the
+#              regex's capture count are LOAD-TIME errors.
+#   fact.confidence:
+#              Optional float in [0.0, 1.0]. Default 0.6 (lower
+#              than the shipped rules' 0.7 to mark "user-authored,
+#              not vetted by the project test suite"). Below 0.7
+#              the T-56 smart-forgetting threshold does NOT
+#              auto-retire prior facts.
+
+id: example-prefer-language
+
+patterns:
+  # Captures statements like "I'd rather use Rust than Python."
+  - regex: "(?i)^I'd rather use (.+?) than (.+?)\\.?$"
+    fact:
+      subject: 'user'
+      predicate: 'prefers_over'
+      object: '{{capture[1]}} (vs {{capture[2]}})'
+      confidence: 0.75

@@ -1,0 +1,58 @@
+{
+  "name": "localmem-mcp",
+  "version": "0.2.0",
+  "description": "MCP server for localmem. Exposes the local memory layer (Rust core) to any MCP-compatible AI tool — Claude Desktop / Code, Cursor, Cline, Windsurf. Also installs itself: `npx localmem-mcp install --client claude`.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "localmem-mcp": "dist/index.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "homepage": "https://github.com/VJ-yadav/localmem-public",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/VJ-yadav/localmem-public.git",
+    "directory": "mcp-server"
+  },
+  "bugs": {
+    "url": "https://github.com/VJ-yadav/localmem-public/issues"
+  },
+  "author": "Vijay Yadav",
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "memory",
+    "ai",
+    "agent",
+    "claude",
+    "cursor",
+    "local-first",
+    "rust",
+    "anthropic"
+  ],
+  "scripts": {
+    "build": "bun build src/index.ts --target=node --outfile=dist/index.js && (printf '#!/usr/bin/env node\\n' && cat dist/index.js) > dist/index.js.tmp && mv dist/index.js.tmp dist/index.js && chmod +x dist/index.js",
+    "build:compile": "bun build src/index.ts --compile --outfile=dist/localmem-mcp",
+    "dev": "bun --watch src/index.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test",
+    "prepublishOnly": "bun run build"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "undici": "^6.0.0",
+    "zod": "^3.23.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.5.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

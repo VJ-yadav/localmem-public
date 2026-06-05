@@ -1,0 +1,169 @@
+# =============================================================================
+# PR Review — Claude Code Automated Review
+# =============================================================================
+# Uses the official anthropics/claude-code-action to review every PR with full
+# codebase understanding. Claude reads the diff, explores affected files,
+# checks callers, and reasons about breaking changes.
+#
+# Required GitHub Secret:
+#   ANTHROPIC_API_KEY — Claude API key
+#
+# Cost: ~$0.01 to $0.05 per review with Haiku.
+# Adapted from the StudentSucceed pattern (~$0.01/review proven in production).
+# =============================================================================
+
+name: PR Review — Claude Code
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+
+env:
+  # actions/checkout@v4 and actions/github-script@v7 run on Node 20 which is
+  # being removed September 16, 2026. Opting into Node 24 now to avoid the
+  # forced cutover on June 2, 2026.
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+  id-token: write
+
+jobs:
+  review:
+    name: AI Code Review
+    runs-on: ubuntu-latest
+    if: github.actor != 'dependabot[bot]'
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get changed files
+        id: diff
+        run: |
+          BASE_REF="${{ github.base_ref }}"
+          git fetch origin "$BASE_REF" 2>/dev/null || true
+
+          CHANGED=$(git diff --name-only "origin/$BASE_REF"...HEAD)
+          DIFF_LINES=$(git diff "origin/$BASE_REF"...HEAD | wc -l | tr -d ' ')
+
+          # Docs-only skip
+          DOCS_ONLY="true"
+          while IFS= read -r file; do
+            case "$file" in
+              *.md|*.txt|*.rst|docs/*|*.mdx|LICENSE) ;;
+              *) DOCS_ONLY="false"; break ;;
+            esac
+          done <<< "$CHANGED"
+
+          echo "diff_size=$DIFF_LINES" >> $GITHUB_OUTPUT
+          echo "docs_only=$DOCS_ONLY" >> $GITHUB_OUTPUT
+          echo "Diff: $DIFF_LINES lines, docs_only=$DOCS_ONLY"
+
+      - name: Skip — docs only or tiny
+        if: steps.diff.outputs.docs_only == 'true' || steps.diff.outputs.diff_size < 5
+        run: echo "Skipping review — no code changes worth reviewing."
+
+      - name: Claude Code Review
+        id: claude_review
+        if: steps.diff.outputs.docs_only == 'false' && steps.diff.outputs.diff_size >= 5
+        uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          claude_args: "--model claude-haiku-4-5-20251001"
+          # Without this, the action only posts when Claude calls the inline
+          # comment tool. If Haiku produces a text verdict but no inline
+          # findings, nothing reaches the PR. Sticky mode forces a top-level
+          # review comment that updates on subsequent runs.
+          use_sticky_comment: true
+          prompt: |
+            You are reviewing a pull request for **localmem**, a local-first,
+            open-source AI memory layer (Rust core binary + TypeScript MCP server).
+            Your job is to deeply understand what this PR changes and whether it
+            could break anything.
+
+            Read STORY.md, ARCHITECTURE.md, MOAT.md, SPEC.md, CLAUDE.md, and
+            docs/LEARNINGS.md in the repo before reviewing. Those documents
+            define the contract.
+
+            ## How to review
+
+            1. **Read the full diff** — understand what the PR is doing, not just line-by-line
+            2. **Read complete files** being modified — surrounding context matters
+            3. **Check callers** — if a function signature, return type, or behavior changed, grep all callers. Will they break?
+            4. **Check downstream effects** — if an event schema changed, does replay still work? If an MCP tool schema changed, does the TS client still validate?
+            5. **Read CLAUDE.md** in the repo — non-negotiable project promises live there
+            6. **Think about edge cases** — empty inputs, concurrent writes to the event log, schema-version mismatches, large memory states
+
+            ## What to block (critical) — these MUST be fixed before merge
+
+            - **Event log mutation:** any code path that rewrites, truncates, or seeks-and-overwrites `events.jsonl`. The log is append-only, period.
+            - **Recomputability break:** changes to derived stores that cannot be rebuilt by `localmem replay`.
+            - **Network call on `memory_*` path:** any required (non-opt-in) outbound network call inside the read/write path of MCP tools. Cloud is always optional.
+            - **Plaintext leaving the machine:** telemetry, sync, logs, or error reports that contain memory content. Even hashes of content count.
+            - **License change:** anything that downgrades or modifies the Apache-2.0 promise. The core is Apache-2.0 forever.
+            - **Schema break:** a change to event payload structure that cannot read older `events.jsonl` files. Migrations must be forward functions, not destructive rewrites.
+            - **Rust safety:** new `unwrap()`, `expect()`, `panic!()`, or `unsafe` blocks in non-test code. Use `anyhow::Result` and `?`.
+            - **String errors:** new `Result<_, String>` or `Box<dyn Error>` in library code. Use `thiserror` for library errors, `anyhow` for application errors.
+            - **MCP contract drift:** any tool whose runtime output diverges from its zod schema, or whose behavior diverges from SPEC.md.
+
+            ## What to warn about
+
+            - New module-level singletons for mutable state (use `Arc<RwLock>` or a resource pool)
+            - Missing `tracing` instrumentation in new code paths
+            - New event kinds not documented in ARCHITECTURE.md
+            - New crate dependencies (call them out — they expand audit surface)
+            - Hardcoded enums or string constants that look like config (should live in YAML)
+            - Sync/async mixing or `block_on` inside async functions
+            - Missing test coverage on a non-trivial new function
+            - Em dashes in user-facing strings or docs (use commas — CLAUDE.md rule)
+
+            ## Format
+
+            Post your review as a PR comment. You MUST always post a comment with a verdict.
+
+            If issues found, start with "X critical, Y warnings" then list each with file, line, issue, and suggested fix.
+
+            If no issues, say: "Review: No issues found" then a 1 to 2 line summary of what the PR does.
+
+            Be specific — quote the code, name the file and line, explain why it's a problem, suggest the fix. Only comment on changed code, not pre-existing issues. Do not invent problems.
+
+      - name: Verify review was posted
+        if: steps.claude_review.outcome == 'success' && steps.diff.outputs.docs_only == 'false' && steps.diff.outputs.diff_size >= 5
+        uses: actions/github-script@v7
+        with:
+          script: |
+            // Wait briefly for any async comment posting to complete
+            await new Promise(r => setTimeout(r, 5000));
+
+            const comments = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+
+            const runStart = new Date(Date.now() - 10 * 60 * 1000);
+            const recentBotComment = comments.data.find(c =>
+              c.user.type === 'Bot' &&
+              new Date(c.created_at) > runStart &&
+              c.body.length > 100
+            );
+
+            if (recentBotComment) {
+              console.log('Claude posted a review comment.');
+              console.log(`Preview: ${recentBotComment.body.substring(0, 200)}`);
+            } else {
+              console.log('WARNING: Claude review completed but did not post a comment.');
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: '**AI Review: No output** — Claude ran successfully but did not post a review comment. This may indicate a configuration issue. Manual review recommended.\n\n_Action run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}_'
+              });
+            }

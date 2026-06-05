@@ -1,0 +1,108 @@
+[package]
+name = "localmem"
+version = "0.2.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "Local-first memory layer for AI agents and AI users."
+repository = "https://github.com/VJ-yadav/localmem-public"
+readme = "../README.md"
+authors = ["Vijay Yadav"]
+
+[[bin]]
+name = "localmem"
+path = "src/main.rs"
+
+[dependencies]
+# Runtime
+tokio = { version = "1.40", features = ["full"] }
+
+# CLI
+clap = { version = "4.5", features = ["derive", "env"] }
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+serde_yaml = "0.9"
+
+# Pattern matching for policy conditions (e.g. PII detection in T-15/T-16).
+regex = "1.11"
+
+# Time + IDs
+chrono = { version = "0.4", features = ["serde"] }
+ulid = { version = "1.1", features = ["serde"] }
+
+# Errors
+anyhow = "1.0"
+thiserror = "1.0"
+
+# Async traits (T-58 pluggable extractor). Used so `Vec<Box<dyn Extractor>>`
+# is dyn-safe: native async fn in trait is stable but its returned future
+# isn't object-safe without auxiliary impls. async-trait macro generates
+# the boxed-future form needed for dynamic dispatch through the registry.
+async-trait = "0.1"
+
+# SHA-256 verification for downloaded models (T-62 `localmem fetch-model`).
+# Pure-Rust impl, no system OpenSSL dep — keeps the cross-compile story
+# clean for the single-binary install path.
+sha2 = "0.10"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+
+# HTTP server (for MCP server to talk to the core)
+axum = "0.7"
+# `util` enables `tower::ServiceExt::oneshot`, which lets the server tests
+# exercise route handlers without binding a real TCP listener.
+tower = { version = "0.5", features = ["util"] }
+
+# Storage (added per task group: T-05 lexical, T-09 vector, T-11 facts, T-08 embedder)
+tantivy = "0.22"
+lancedb = "0.29"
+# `bundled` builds DuckDB from source so CI does not need a system libduckdb.
+duckdb = { version = "1", features = ["bundled"] }
+
+# Embedder (T-08): ONNX runtime + tokenizer for BGE-small-en-v1.5.
+# `download-binaries` fetches the ONNX runtime shared library at build time so
+# the binary does not require a system-wide ONNX install.
+ort = { version = "=2.0.0-rc.10", default-features = false, features = [
+    "ndarray",
+    "download-binaries",
+] }
+ndarray = "0.16"
+tokenizers = { version = "0.21", default-features = false, features = ["onig"] }
+
+# Arrow types used to construct LanceDB record batches (T-09).
+# Version pinned to match what `lancedb` 0.29 resolves so we share concrete
+# types: a mismatched arrow version compiles but types don't unify, e.g.
+# `RecordBatch` from arrow 55 is not the same type as from arrow 58.
+arrow-array = "58"
+arrow-schema = "58"
+# Streams (TryStreamExt) for collecting LanceDB query results.
+futures = "0.3"
+
+# TOML config loader (T-46). Reads `<home>/config.toml`.
+toml = "0.8"
+
+# Synchronous HTTP client used by:
+#   - dev: tests download the BGE-small ONNX assets from HuggingFace.
+#   - runtime: T-45 routes `localmem write` through the local HTTP server
+#     when one is running (probes /health, POSTs /write).
+# Blocking calls are pushed onto a tokio blocking thread so we don't stall
+# the async runtime.
+ureq = { version = "2", default-features = false, features = ["tls", "json"] }
+
+# OS-level fsync (F_FULLFSYNC on macOS, sync_data on other platforms).
+# Keep this section LAST among dep tables so the implicit [dependencies] above
+# is not silently swallowed by this target-specific table.
+[target.'cfg(target_os = "macos")'.dependencies]
+libc = "0.2"
+
+[dev-dependencies]
+tempfile = "3"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+strip = true

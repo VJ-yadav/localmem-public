@@ -1,0 +1,109 @@
+name: ci
+
+# Manual-only trigger during v0.1 build. We exhausted the free GitHub
+# Actions quota mid-month; local verification (cargo fmt + clippy + test)
+# is the gate of record until the budget resets. Flip back to
+# `push: branches: [main]` once the quota is healthy or once we move to
+# a paid plan / self-hosted runner.
+on:
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+  # actions/checkout@v4, Swatinem/rust-cache@v2, etc. run on Node 20 which is
+  # being removed September 16, 2026. Opting into Node 24 now to avoid the
+  # forced cutover on June 2, 2026.
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
+jobs:
+  rust:
+    name: rust (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # macos-14 = Apple Silicon (primary target).
+        # ubuntu-latest = Linux x86_64.
+        # macos-13 (Intel) deferred until release: free-runner queue too slow
+        # and Apple is phasing out Intel anyway.
+        os: [macos-14, ubuntu-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      # GitHub's free ubuntu-latest runner has ~14 GB of disk. The debug-mode
+      # compile of our dep tree (ort + lancedb + duckdb-bundled + arrow stack)
+      # blows through it during the test compile phase: PR #8's first run hit
+      # `rustc-LLVM ERROR: IO failure on output stream: No space left on
+      # device`. Removing the pre-installed Android SDK, .NET, Haskell, and
+      # docker images frees ~30 GB and is fast.
+      - name: Free disk space (Linux)
+        if: runner.os == 'Linux'
+        uses: jlumbroso/free-disk-space@main
+        with:
+          tool-cache: false
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: true
+          docker-images: true
+          swap-storage: true
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      # protoc is needed by lance-encoding's build script (transitive dep of
+      # lancedb, T-09). Without it the build fails before any of our code
+      # compiles. macOS runners include Homebrew; Ubuntu uses apt.
+      - name: Install protoc (macOS)
+        if: runner.os == 'macOS'
+        run: brew install protobuf
+
+      - name: Install protoc (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
+
+      - name: Cache cargo registry + target
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: core
+
+      - name: Format check
+        working-directory: core
+        run: cargo fmt --all -- --check
+
+      - name: Clippy
+        working-directory: core
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: Build
+        working-directory: core
+        run: cargo build --release --verbose
+
+      - name: Test
+        working-directory: core
+        run: cargo test --verbose
+
+  mcp-server:
+    name: mcp-server
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install
+        working-directory: mcp-server
+        run: bun install
+
+      - name: Typecheck
+        working-directory: mcp-server
+        run: bun run typecheck
+
+      - name: Build
+        working-directory: mcp-server
+        run: bun run build
