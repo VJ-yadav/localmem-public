@@ -113,7 +113,7 @@ If your platform isn't in the release tarballs (e.g., Windows, BSD, exotic
 Linux), build from source:
 
 ```bash
-git clone https://github.com/VJ-yadav/localmem-public
+git clone https://github.com/VJ-yadav/localmem-community
 cd localmem/core
 cargo build --release            # needs Rust 1.83+, ~5 min on M1
 ./target/release/localmem doctor # verify install
@@ -724,4 +724,4 @@ shipped in v0.2 (`docs/feedback/2026-06-04-agent-field-notes.md`) drove an
 ---
 
 *localmem v0.2 — built by Vijay Yadav. Apache-2.0. Repo:
-[github.com/VJ-yadav/localmem-public](https://github.com/VJ-yadav/localmem-public).*
+[github.com/VJ-yadav/localmem-community](https://github.com/VJ-yadav/localmem-community).*

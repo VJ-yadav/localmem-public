@@ -15,7 +15,7 @@ Static landing page for `localmem.org`.
 Pros: free, edge-deployed, fast, and `_redirects` works natively so `/install` returns a real HTTP 302 (which is what `curl | sh` needs).
 
 1. Sign in at [pages.cloudflare.com](https://pages.cloudflare.com/) → "Create a project" → "Connect to Git".
-2. Authorize Cloudflare for the `VJ-yadav/localmem-public` repo.
+2. Authorize Cloudflare for the `VJ-yadav/localmem-community` repo.
 3. Configure the build:
    - **Production branch:** `main`
    - **Build command:** *(leave blank — pure static)*

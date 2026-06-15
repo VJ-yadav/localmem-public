@@ -221,6 +221,90 @@ Every Claude Code session, every Cursor session, every ChatGPT chat in
 the world has the same gaps. The proof that the same solution works for
 all of them is running right now on Vijay's MacBook.
 
+## Where we are today (updated 2026-06-15)
+
+A month after the landscape snapshot above, the substrate is real and
+the differentiation has held. This section catalogs what shipped
+between May and mid-June, and what changed in the broader picture.
+
+**Substrate shipped and battle-tested:**
+
+- **Active contradiction resolution.** A new high-confidence fact
+  about the same `(subject, predicate)` automatically retires the
+  prior conflicting one, with the supersession logged in the
+  journal. Memento explicitly refuses to do this — their docs:
+  *"Memento never decides which side of a conflict is right."* We
+  decided, and we made the audit trail bulletproof.
+- **Per-kind decay half-life.** `fact` decays over 90 days,
+  `preference` over 180, `decision` over 365, `todo` over 14. The
+  same numbers Memento ships. Matched on substance; we own them
+  natively, not as a config bolt-on.
+- **MMR re-ranker + cross-encoder rerank.** The hybrid retriever
+  now diversifies top-k results (no near-duplicates) and rescore
+  with a real cross-encoder. Memento ships MMR; the cross-encoder
+  is ours.
+- **Smart forgetting + todo lifecycle.** A new `UpdateCapture`
+  event flips done/open on todo captures; the event log stays
+  append-only, replay reconstructs the latest state.
+- **Discovery API.** `localmem subjects` / `tags` / `summarize` /
+  `recent` / `audit` — every fact traces back to its source
+  capture, every retired fact lists why.
+- **MCP Resources + Prompts.** `localmem://profile`, `://subjects`,
+  `://tags`, `://recent` for live state. `session_context` and
+  `summarize_tag` prompts auto-inject at session start.
+- **Multi-tab local dashboard.** Timeline, Graph, Replay views on
+  127.0.0.1:8088, served by the Rust core directly.
+- **Five MCP clients auto-install:** Claude Desktop, Claude Code,
+  Cursor, Windsurf, Cline. One command per client; revertible.
+- **Lifecycle commands** (`setup`, `service`, `doctor`, `status`)
+  for one-command install and OS-native auto-start.
+- **Memorybench provider working** end-to-end against the public
+  `supermemoryai/memorybench` benchmark. Private smoke runs
+  underway; numbers go public when they clear our threshold.
+
+**Distribution shipped:**
+
+- `localmem-mcp` published to npm (`npx localmem-mcp install ...`)
+- One-command install: `curl -fsSL https://localmem.org/install | sh`
+- Community Edition repo (this one) under Apache-2.0
+
+**The competitive picture, one month later:**
+
+- **Supermemory** still leads on cloud-first benchmark scores.
+  Their architectural choice (cloud holds the data) hasn't
+  changed; the wedge we're building against them hasn't moved
+  either.
+- **Memento** continues to ship — they remain the closest direct
+  OSS comparison. Where they're ahead today: per-git-branch scope
+  grammar, curated YAML "memory packs" for cold-start onboarding,
+  longer time in market.
+- **agentmemory** has continued its star-curve growth and shipped
+  the auto-capture-hooks pattern we don't have yet. We watch their
+  releases; we won't copy the telemetry-by-default choice.
+- **mem0** raised more money. Their thesis remains cloud-first.
+
+**What's still pending before public launch:**
+
+- Apple Developer ID + notarized macOS binary (so first-run
+  doesn't trip Gatekeeper)
+- Private LongMemEval / LoCoMo numbers ≥75% before any upstream
+  PR to memorybench
+- Branch-scope grammar (Memento has it; we want it)
+- Curated YAML packs (engineering-simplicity, pragmatic-programmer,
+  twelve-factor, google-sre — cold-start onboarding play)
+- Typed conflicts view (`localmem conflicts list`) — surfaces
+  smart-forgetting outcomes as queryable rows
+- One-liner install hardening (notarization, prebuilt binaries
+  for all four targets, hosted install script)
+
+**What's not changing:**
+
+The five hard rules from `EDITIONS.md` hold. Community Edition stays
+Apache-2.0 forever. Enterprise and Cloud are separate repos, sold
+to teams + companies that need multi-user identity, compliance, and
+managed hosting. No reverse-degradation: anything that ships
+Apache-2.0 stays Apache-2.0.
+
 ## The horizon
 
 In year one, localmem is a developer tool with thousands of daily users

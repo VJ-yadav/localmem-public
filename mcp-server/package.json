@@ -16,11 +16,11 @@
   "homepage": "https://localmem.org",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/VJ-yadav/localmem-public.git",
+    "url": "git+https://github.com/VJ-yadav/localmem-community.git",
     "directory": "mcp-server"
   },
   "bugs": {
-    "url": "https://github.com/VJ-yadav/localmem-public/issues"
+    "url": "https://github.com/VJ-yadav/localmem-community/issues"
   },
   "author": "Vijay Yadav",
   "keywords": [

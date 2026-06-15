@@ -1,6 +1,6 @@
 # localmem-mcp
 
-MCP (Model Context Protocol) server for [**localmem**](https://github.com/VJ-yadav/localmem-public),
+MCP (Model Context Protocol) server for [**localmem**](https://github.com/VJ-yadav/localmem-community),
 the local-first AI memory layer.
 
 This package is the thin Node adapter that exposes the localmem Rust core to
@@ -94,6 +94,6 @@ terminal. The AI client sees only that project's memory.
 
 ## License + links
 
-Apache-2.0. Core repo: https://github.com/VJ-yadav/localmem-public.
-Full user guide: [HOW_IT_WORKS.md](https://github.com/VJ-yadav/localmem-public/blob/main/docs/HOW_IT_WORKS.md).
-Architecture: [ARCHITECTURE.md](https://github.com/VJ-yadav/localmem-public/blob/main/ARCHITECTURE.md).
+Apache-2.0. Core repo: https://github.com/VJ-yadav/localmem-community.
+Full user guide: [HOW_IT_WORKS.md](https://github.com/VJ-yadav/localmem-community/blob/main/docs/HOW_IT_WORKS.md).
+Architecture: [ARCHITECTURE.md](https://github.com/VJ-yadav/localmem-community/blob/main/ARCHITECTURE.md).

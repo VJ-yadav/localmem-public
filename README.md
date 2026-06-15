@@ -7,9 +7,9 @@
 
 <p align="center">
   <a href="https://www.npmjs.com/package/localmem-mcp"><img src="https://img.shields.io/npm/v/localmem-mcp?color=CB3837&label=npm&style=for-the-badge&logo=npm" alt="npm version" /></a>
-  <a href="https://github.com/VJ-yadav/localmem-public/releases/latest"><img src="https://img.shields.io/github/v/release/VJ-yadav/localmem-public?label=release&style=for-the-badge&logo=github" alt="GitHub release" /></a>
-  <a href="https://github.com/VJ-yadav/localmem-public/blob/main/LICENSE"><img src="https://img.shields.io/github/license/VJ-yadav/localmem-public?color=blue&style=for-the-badge" alt="License" /></a>
-  <a href="https://github.com/VJ-yadav/localmem-public/stargazers"><img src="https://img.shields.io/github/stars/VJ-yadav/localmem-public?style=for-the-badge&color=yellow&logo=github" alt="Stars" /></a>
+  <a href="https://github.com/VJ-yadav/localmem-community/releases/latest"><img src="https://img.shields.io/github/v/release/VJ-yadav/localmem-community?label=release&style=for-the-badge&logo=github" alt="GitHub release" /></a>
+  <a href="https://github.com/VJ-yadav/localmem-community/blob/main/LICENSE"><img src="https://img.shields.io/github/license/VJ-yadav/localmem-community?color=blue&style=for-the-badge" alt="License" /></a>
+  <a href="https://github.com/VJ-yadav/localmem-community/stargazers"><img src="https://img.shields.io/github/stars/VJ-yadav/localmem-community?style=for-the-badge&color=yellow&logo=github" alt="Stars" /></a>
   <a href="https://modelcontextprotocol.io/"><img src="https://img.shields.io/badge/MCP-native-purple?style=for-the-badge" alt="MCP-native" /></a>
 </p>
 
@@ -28,7 +28,7 @@
   <a href="#how-it-compares">How it compares</a> &bull;
   <a href="#works-with-every-mcp-aware-agent">Agents</a> &bull;
   <a href="#docs">Docs</a> &bull;
-  <a href="https://github.com/VJ-yadav/localmem-public/discussions">Discussions</a>
+  <a href="https://github.com/VJ-yadav/localmem-community/discussions">Discussions</a>
 </p>
 
 ---
@@ -156,8 +156,8 @@ Full design: [ARCHITECTURE.md](ARCHITECTURE.md).
 The released binary covers macOS arm64 (Apple Silicon). For Intel Mac, Linux, or anyone who'd rather build it themselves:
 
 ```bash
-git clone https://github.com/VJ-yadav/localmem-public
-cd localmem-public/core
+git clone https://github.com/VJ-yadav/localmem-community
+cd localmem-community/core
 cargo build --release           # needs Rust 1.83+; ~5–10 min on first build
 ./target/release/localmem doctor
 ```
@@ -168,15 +168,29 @@ Cross-compiled binaries for Intel Mac + Linux ship in a follow-up release.
 
 ## Docs
 
+**Start here:**
+
+| Doc | What it covers |
+|---|---|
+| [QUICKSTART.md](docs/QUICKSTART.md) | 5 minutes to first capture. Install → wire up one MCP client → confirm the round-trip. |
+| [WHY_LOCALMEM.md](docs/WHY_LOCALMEM.md) | Honest comparison vs. mem0, Memento, agentmemory, and just MEMORY.md files. Pick the right tool for your case. |
+| [INSTALL_PER_CLIENT.md](docs/INSTALL_PER_CLIENT.md) | Deep-dive install for each MCP client: Claude Desktop / Code / Cursor / Windsurf / Cline. Includes troubleshooting per client. |
+| [MIGRATING.md](docs/MIGRATING.md) | Import from ChatGPT, Claude, MEMORY.md files, and other memory tools |
+| [FOR_TEAMS.md](docs/FOR_TEAMS.md) | Using localmem at startups and small-to-mid-size companies. When to graduate to the Enterprise Edition. |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | How to land a PR. Conventions, setup, review process. |
+
+**Reference:**
+
 | Doc | What it covers |
 |---|---|
 | [HOW_IT_WORKS.md](docs/HOW_IT_WORKS.md) | Full user guide: every command, every concept, with examples |
 | [SHARED_MEMORY_FOR_AGENTS.md](docs/SHARED_MEMORY_FOR_AGENTS.md) | Multi-agent shared memory: the "stop re-explaining" walkthrough |
-| [INSTALL.md](docs/INSTALL.md) | Per-platform install, troubleshooting, build-from-source |
+| [INSTALL.md](docs/INSTALL.md) | Per-platform install, build-from-source, air-gapped deployment |
 | [AGENT_BOOTSTRAP.md](docs/AGENT_BOOTSTRAP.md) | How an agent should reach localmem at session start |
-| [MEMORY_TIERS.md](docs/MEMORY_TIERS.md) | Hot tier (CLAUDE.md) vs cold tier (localmem). Promotion rules |
+| [MEMORY_TIERS.md](docs/MEMORY_TIERS.md) | Hot tier (CLAUDE.md) vs. cold tier (localmem). Promotion rules. |
 | [CLAUDE_DESKTOP_SETUP.md](docs/CLAUDE_DESKTOP_SETUP.md) | Wire localmem into Claude Desktop step by step |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | Locked technical design: event schema, derived stores, replay semantics |
+| [EDITIONS.md](EDITIONS.md) | The Community / Enterprise / Cloud three-tier model + what's in each + when to pay |
 | [STORY.md](STORY.md) | Why localmem exists |
 | [docs/feedback/](docs/feedback/) | Field reports from agents that have used localmem in real work |
 
@@ -204,18 +218,39 @@ The local-first OSS experience is the complete experience. Paid features are alw
 
 ## Get help / give feedback
 
-- **[GitHub Discussions](https://github.com/VJ-yadav/localmem-public/discussions)** — questions, show-and-tell, ideas
-- **[GitHub Issues](https://github.com/VJ-yadav/localmem-public/issues)** — bugs and feature requests
+- **[GitHub Discussions](https://github.com/VJ-yadav/localmem-community/discussions)** — questions, show-and-tell, ideas
+- **[GitHub Issues](https://github.com/VJ-yadav/localmem-community/issues)** — bugs and feature requests
 - **Field reports in [`docs/feedback/`](docs/feedback/)** — if you use localmem for a week, write up the friction. That is the highest-value contribution you can make right now.
 
 ---
 
 ## License
 
-Apache-2.0 for everything in this repo. Cloud services ship separately under a commercial license in a future release. The core binary and MCP server are committed to remain Apache-2.0 forever.
+**This repo (Community Edition) is Apache-2.0 forever.** Every feature
+shipped here — the Rust core, the MCP server, the hybrid retriever,
+smart forgetting, the dashboard, every importer, every extractor —
+stays Apache-2.0. We do not reverse-degrade.
+
+localmem ships as three distinct products:
+
+| Edition | Repo | License | What you get |
+|---|---|---|---|
+| **Community** (you are here) | `localmem-community` | **Apache-2.0** | Feature-complete for individual developers. Free forever. |
+| **Enterprise** | `localmem-enterprise` (private) | Closed proprietary, annual contract | Multi-tenancy, SSO, RBAC, audit export, BYOK encryption, SIEM integration, compliance certifications (SOC 2, ISO 27001, HIPAA). |
+| **Cloud** | `localmem-cloud` (private) | Closed proprietary SaaS | Enterprise Edition + hosting + multi-region + 99.9% SLA + automated backups + mobile app. |
+
+The Community Edition is **complete on its own** for solo developers
+and internal-tool teams. The paid tiers exist for organizations that
+need multi-user identity, compliance, or managed hosting — they wrap
+the Community core, they don't replace it. See [EDITIONS.md](EDITIONS.md)
+for the full three-tier model, what's in each edition, and our hard
+rules (the load-bearing one: anything that ships Apache-2.0 stays
+Apache-2.0 forever).
+
+Enterprise + Cloud inquiries: [localmem.org](https://localmem.org).
 
 ## Built by
 
 Vijay Yadav. One human plus one Claude Code instance dogfooding itself as the first user — localmem is the memory layer for the agent that helped build it.
 
-**Web:** [localmem.org](https://localmem.org) &middot; **npm:** [`localmem-mcp`](https://www.npmjs.com/package/localmem-mcp) &middot; **Repo:** [github.com/VJ-yadav/localmem-public](https://github.com/VJ-yadav/localmem-public)
+**Web:** [localmem.org](https://localmem.org) &middot; **npm:** [`localmem-mcp`](https://www.npmjs.com/package/localmem-mcp) &middot; **Repo:** [github.com/VJ-yadav/localmem-community](https://github.com/VJ-yadav/localmem-community)

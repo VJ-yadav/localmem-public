@@ -42,7 +42,7 @@ no `--insecure` flag.
 ## Pinning a version
 
 ```sh
-curl -fsSL https://github.com/VJ-yadav/localmem-public/releases/download/v0.2.0/install.sh | sh -s -- --version v0.2.0
+curl -fsSL https://github.com/VJ-yadav/localmem-community/releases/download/v0.2.0/install.sh | sh -s -- --version v0.2.0
 ```
 
 Or via env var:
@@ -99,8 +99,8 @@ build the binary yourself (no network call to GitHub Releases), you
 need a Rust toolchain (stable 1.83+):
 
 ```sh
-git clone https://github.com/VJ-yadav/localmem-public
-cd localmem-public/core
+git clone https://github.com/VJ-yadav/localmem-community
+cd localmem-community/core
 cargo build --release
 cp target/release/localmem ~/.local/bin/
 ```
@@ -138,13 +138,13 @@ Then reload: `source ~/.bashrc` or open a new shell.
 
 Something tampered with the tarball between GitHub Releases and your
 machine. Stop. Don't bypass. File an issue at
-`https://github.com/VJ-yadav/localmem-public/issues` with the version
+`https://github.com/VJ-yadav/localmem-community/issues` with the version
 and your platform.
 
 **"no such release tag" / 404 on the tarball**
 
 The version you asked for doesn't ship a binary for your platform.
-Check the [Releases page](https://github.com/VJ-yadav/localmem-public/releases)
+Check the [Releases page](https://github.com/VJ-yadav/localmem-community/releases)
 to see which targets are available. As of v0.2.0 only macOS arm64
 ships as a prebuilt; other platforms build from source.
 

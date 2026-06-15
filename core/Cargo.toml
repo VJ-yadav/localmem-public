@@ -4,7 +4,7 @@ version = "0.2.0"
 edition = "2021"
 license = "Apache-2.0"
 description = "Local-first memory layer for AI agents and AI users."
-repository = "https://github.com/VJ-yadav/localmem-public"
+repository = "https://github.com/VJ-yadav/localmem-community"
 readme = "../README.md"
 authors = ["Vijay Yadav"]
 

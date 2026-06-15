@@ -14,7 +14,7 @@
 # Environment:
 #   LOCALMEM_INSTALL_DIR  override install dir (default: $HOME/.local/bin)
 #   LOCALMEM_VERSION      pin to a specific release tag (default: latest)
-#   LOCALMEM_REPO         override the GitHub repo (default: VJ-yadav/localmem-public)
+#   LOCALMEM_REPO         override the GitHub repo (default: VJ-yadav/localmem-community)
 #
 # Design notes:
 #   * POSIX sh, not bash, so the same script works in BusyBox/Alpine.
@@ -30,7 +30,7 @@ set -eu
 
 # ----- Configuration -------------------------------------------------------
 
-REPO="${LOCALMEM_REPO:-VJ-yadav/localmem-public}"
+REPO="${LOCALMEM_REPO:-VJ-yadav/localmem-community}"
 VERSION="${LOCALMEM_VERSION:-}"
 INSTALL_DIR="${LOCALMEM_INSTALL_DIR:-${HOME}/.local/bin}"
 BIN_NAME="localmem"

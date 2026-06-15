@@ -3,12 +3,12 @@
 # hitting the GitHub Releases install.sh URL directly. The 302 keeps
 # the URL pointed at the latest release asset.
 
-/install     https://github.com/VJ-yadav/localmem-public/releases/latest/download/install.sh   302
-/install/*   https://github.com/VJ-yadav/localmem-public/releases/latest/download/install.sh   302
+/install     https://github.com/VJ-yadav/localmem-community/releases/latest/download/install.sh   302
+/install/*   https://github.com/VJ-yadav/localmem-community/releases/latest/download/install.sh   302
 
 # Convenience shortlinks
-/docs        https://github.com/VJ-yadav/localmem-public/blob/main/docs/HOW_IT_WORKS.md         302
-/repo        https://github.com/VJ-yadav/localmem-public                                        302
+/docs        https://github.com/VJ-yadav/localmem-community/blob/main/docs/HOW_IT_WORKS.md         302
+/repo        https://github.com/VJ-yadav/localmem-community                                        302
 /npm         https://www.npmjs.com/package/localmem-mcp                                          302
-/issues      https://github.com/VJ-yadav/localmem-public/issues                                  302
-/discussions https://github.com/VJ-yadav/localmem-public/discussions                             302
+/issues      https://github.com/VJ-yadav/localmem-community/issues                                  302
+/discussions https://github.com/VJ-yadav/localmem-community/discussions                             302
