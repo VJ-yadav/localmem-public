@@ -3,7 +3,8 @@
 #
 # Detects OS + architecture, downloads the matching release tarball
 # from GitHub Releases, verifies its SHA256 against SHA256SUMS, extracts
-# the `localmem` binary into ~/.local/bin/, and prints next steps.
+# the `localmem` binary into ~/.local/bin/, then runs `localmem setup` to
+# finish onboarding (the two-command install).
 #
 # Usage:
 #   curl -fsSL https://localmem.co/install | sh
@@ -11,10 +12,14 @@
 # Or with a version pin:
 #   curl -fsSL https://localmem.co/install | sh -s -- --version v0.1.0
 #
+# Flags:
+#   --no-setup            install the binary only; skip the setup step
+#
 # Environment:
 #   LOCALMEM_INSTALL_DIR  override install dir (default: $HOME/.local/bin)
 #   LOCALMEM_VERSION      pin to a specific release tag (default: latest)
 #   LOCALMEM_REPO         override the GitHub repo (default: VJ-yadav/localmem-community)
+#   LOCALMEM_NO_SETUP     set to skip `localmem setup` (same as --no-setup)
 #
 # Design notes:
 #   * POSIX sh, not bash, so the same script works in BusyBox/Alpine.
@@ -36,8 +41,15 @@ INSTALL_DIR="${LOCALMEM_INSTALL_DIR:-${HOME}/.local/bin}"
 BIN_NAME="localmem"
 TARBALL_PREFIX="localmem"
 
-# Parse flags. We only recognize --version; everything else is forwarded
-# in the error path so a typo is loud.
+# Whether to chain into `localmem setup` after the binary lands. This is the
+# second half of the two-command install; --no-setup / LOCALMEM_NO_SETUP opts
+# out for a binary-only install (packagers, CI). Auto-run is further gated on
+# an interactive terminal at the end of the script.
+RUN_SETUP=1
+[ -n "${LOCALMEM_NO_SETUP:-}" ] && RUN_SETUP=0
+
+# Parse flags. We only recognize --version and --no-setup; everything else is
+# forwarded in the error path so a typo is loud.
 while [ $# -gt 0 ]; do
     case "$1" in
         --version)
@@ -46,6 +58,10 @@ while [ $# -gt 0 ]; do
             ;;
         --version=*)
             VERSION="${1#--version=}"
+            shift
+            ;;
+        --no-setup)
+            RUN_SETUP=0
             shift
             ;;
         -h|--help)
@@ -103,6 +119,8 @@ case "$uname_s" in
         err "unsupported OS: $uname_s. v0.1 ships macOS + Linux only."
         ;;
 esac
+
+log "detected: $uname_s $uname_m -> $TARGET"
 
 # ----- Resolve version ------------------------------------------------------
 
@@ -213,7 +231,7 @@ fi
 
 log "installed: $INSTALL_DIR/$BIN_NAME"
 
-# ----- PATH check + next steps ----------------------------------------------
+# ----- PATH check + finish onboarding ---------------------------------------
 
 case ":$PATH:" in
     *":$INSTALL_DIR:"*) ;;
@@ -224,16 +242,30 @@ case ":$PATH:" in
         ;;
 esac
 
+# Second half of the two-command install: chain into `localmem setup`, which
+# narrates its own steps (init, model, MCP wiring, service) and prints a final
+# summary. We auto-run only when stdout is a terminal: in the canonical
+# `curl ... | sh`, stdin is the script pipe but stdout is still the user's
+# terminal, so `-t 1` is the right interactivity probe. A non-interactive pipe
+# (CI, `| sh > log`) falls through to the printed hint, so nothing downloads a
+# model or installs a login service unattended. `exec` hands the terminal to
+# setup and makes its exit status the installer's.
+if [ "$RUN_SETUP" -eq 1 ] && [ -t 1 ]; then
+    printf '\n'
+    log "binary in place — running: $BIN_NAME setup"
+    log "(skip this next time with: curl ... | sh -s -- --no-setup)"
+    printf '\n'
+    exec "$INSTALL_DIR/$BIN_NAME" setup
+fi
+
 cat <<EOF
 
   ✓ localmem installed.
 
-  Next steps:
-    $BIN_NAME init                 # scaffold ~/.localmem/
-    $BIN_NAME write --content "Hello, memory."
-    $BIN_NAME search "memory"
+  One more step wires your AI tools to a single shared memory:
+    $BIN_NAME setup
 
-  For Claude Desktop / Cursor / Codex setup:
-    https://github.com/${REPO}/blob/main/docs/CLAUDE_DESKTOP_SETUP.md
+  setup is idempotent and narrates each step. Read more:
+    https://localmem.org
 
 EOF

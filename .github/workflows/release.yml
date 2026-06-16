@@ -1,0 +1,165 @@
+name: release
+
+# Build + publish prebuilt localmem binaries when a version tag is pushed.
+#
+# install.sh fetches `localmem-<version>-<target>.tar.gz` and `SHA256SUMS`
+# from the GitHub Release, so the names below are a HARD CONTRACT with that
+# script:
+#   * tarball: <prefix>-<version-without-leading-v>-<rust-target-triple>.tar.gz
+#   * binary lives at the archive root (install.sh has a find fallback, but
+#     we keep it at root so the fast path hits)
+#   * SHA256SUMS lines are `<sha256>  <tarball>` (sha256sum/shasum default)
+#
+# We build on NATIVE runners per target. Cross-compiling is not viable here:
+# the dep tree bundles DuckDB, onnxruntime (via ort), and lancedb, all with
+# native build scripts that fight cross toolchains. A native runner per
+# target is the boring, reliable path.
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write # create the release and upload assets
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+  # actions/* run on Node 20 (removed 2026-09-16). Opt into Node 24 now to
+  # avoid the forced cutover. Mirrors ci.yml.
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
+jobs:
+  build:
+    name: build (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+    # One target's runner being slow, queued, or unavailable must not sink the
+    # others: the two primary tarballs ship even if a secondary target fails.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # --- Primary: covers ~all developer machines ---
+          - os: macos-14 # Apple Silicon
+            target: aarch64-apple-darwin
+          - os: ubuntu-22.04 # glibc 2.35 keeps the binary runnable on older distros
+            target: x86_64-unknown-linux-gnu
+          # --- Secondary: nice-to-have, best-effort ---
+          - os: ubuntu-22.04-arm # Graviton / Raspberry Pi 64-bit
+            target: aarch64-unknown-linux-gnu
+          - os: macos-13 # Intel Macs
+            target: x86_64-apple-darwin
+    steps:
+      - uses: actions/checkout@v4
+
+      # The release compile of the full dep tree (ort + lancedb +
+      # duckdb-bundled + arrow) overflows the ~14 GB free-runner disk on
+      # Linux. Reclaiming the preinstalled SDKs frees ~30 GB. Mirrors ci.yml.
+      - name: Free disk space (Linux)
+        if: runner.os == 'Linux'
+        uses: jlumbroso/free-disk-space@main
+        with:
+          tool-cache: false
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: true
+          docker-images: true
+          swap-storage: true
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      # protoc is required by lance-encoding's build script (transitive via
+      # lancedb). Without it the build fails before our code compiles.
+      - name: Install protoc (macOS)
+        if: runner.os == 'macOS'
+        run: brew install protobuf
+
+      - name: Install protoc (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
+
+      - name: Cache cargo registry + target
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: core
+          key: ${{ matrix.target }}
+
+      - name: Build release binary
+        working-directory: core
+        run: cargo build --release --locked --target ${{ matrix.target }}
+
+      - name: Package tarball + checksum
+        working-directory: core
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          tarball="localmem-${version}-${{ matrix.target }}.tar.gz"
+          staging="$(mktemp -d)"
+          cp "target/${{ matrix.target }}/release/localmem" "$staging/localmem"
+          tar -C "$staging" -czf "$tarball" localmem
+          if command -v sha256sum >/dev/null 2>&1; then
+            sha256sum "$tarball" > "$tarball.sha256"
+          else
+            shasum -a 256 "$tarball" > "$tarball.sha256"
+          fi
+          echo "built $tarball"
+          cat "$tarball.sha256"
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.target }}
+          path: |
+            core/localmem-*.tar.gz
+            core/localmem-*.tar.gz.sha256
+          retention-days: 3
+          if-no-files-found: error
+
+  publish:
+    name: publish release
+    needs: build
+    # Even if a secondary build failed, publish what we have. The primary
+    # targets are the launch blocker; a missing Intel-mac tarball is not.
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+
+      - name: Assemble release assets + SHA256SUMS
+        working-directory: dist
+        run: |
+          set -euo pipefail
+          # download-artifact nests each artifact under dist/<target>/.
+          # Flatten tarballs + their per-file checksums to dist/ root.
+          find . -mindepth 2 -name 'localmem-*.tar.gz' -exec mv -t . {} +
+          find . -mindepth 2 -name 'localmem-*.tar.gz.sha256' -exec mv -t . {} +
+          # Each .sha256 already holds `<sha>  <basename>` (we ran the
+          # checksum on the bare tarball name), so concatenation IS the
+          # SHA256SUMS install.sh expects.
+          cat localmem-*.tar.gz.sha256 > SHA256SUMS
+          rm -f localmem-*.tar.gz.sha256
+          echo "--- release assets ---"
+          ls -la
+          echo "--- SHA256SUMS ---"
+          cat SHA256SUMS
+
+      - name: Create / update GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
+          # Any tag with a hyphen (v0.2.4-beta.1) is a prerelease.
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          files: |
+            dist/localmem-*.tar.gz
+            dist/SHA256SUMS
