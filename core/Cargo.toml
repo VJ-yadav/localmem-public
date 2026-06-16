@@ -95,7 +95,13 @@ ureq = { version = "2", default-features = false, features = ["tls", "json"] }
 # OS-level fsync (F_FULLFSYNC on macOS, sync_data on other platforms).
 # Keep this section LAST among dep tables so the implicit [dependencies] above
 # is not silently swallowed by this target-specific table.
-[target.'cfg(target_os = "macos")'.dependencies]
+#
+# libc is needed on all unix: free_space_bytes uses statvfs (POSIX, Linux too),
+# while the F_FULLFSYNC durability path is macOS-gated with a sync_data fallback
+# elsewhere. macOS-first still ships the Mac build; widening this to cfg(unix)
+# only lets the source compile on Linux (eval servers, CI) and changes no macOS
+# behavior, since cfg(unix) includes macOS.
+[target.'cfg(unix)'.dependencies]
 libc = "0.2"
 
 [dev-dependencies]

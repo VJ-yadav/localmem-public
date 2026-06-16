@@ -48,8 +48,10 @@ jobs:
           # --- Secondary: nice-to-have, best-effort ---
           - os: ubuntu-22.04-arm # Graviton / Raspberry Pi 64-bit
             target: aarch64-unknown-linux-gnu
-          - os: macos-13 # Intel Macs
-            target: x86_64-apple-darwin
+          # macos-13 (Intel) intentionally omitted: the free Intel-mac runner
+          # queue routinely stalls 50+ min and blocks the publish job. Re-add
+          # once we have paid runners, or build it ad hoc and upload to the
+          # release manually. Apple is phasing out Intel anyway.
     steps:
       - uses: actions/checkout@v4
 
