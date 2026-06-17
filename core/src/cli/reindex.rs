@@ -26,18 +26,30 @@ pub struct ReindexStats {
     pub vectors_written: u64,
 }
 
-/// Entry point for the `reindex` subcommand.
-pub async fn run(home: Option<&str>, as_json: bool) -> Result<()> {
+/// Entry point for the `reindex` subcommand. `sample`, when set, stops after
+/// that many SIGNAL captures: a fast smoke test that the embed + write path
+/// works on this machine before committing to a full multi-thousand-capture
+/// rebuild (and that the chosen batch sizes are sane for the hardware).
+pub async fn run(home: Option<&str>, as_json: bool, sample: Option<u64>) -> Result<()> {
     let home = resolve_home(home)?;
-    let stats = reindex_home(&home).await?;
+    let stats = reindex_home_sampled(&home, sample).await?;
     emit(&stats, as_json)
 }
 
-/// Rebuild `<home>/derived/vectors.lance/` from scratch. Requires a
-/// loaded embedder; a missing model is a fatal error (use `localmem
-/// replay` instead if the goal is to drop and rebuild every store, or
-/// install the model and re-run this).
+/// Rebuild `<home>/derived/vectors.lance/` from scratch (full log). Requires a
+/// loaded embedder; a missing model is a fatal error (use `localmem replay`
+/// instead if the goal is to drop and rebuild every store, or install the model
+/// and re-run this).
+///
+/// reindex re-embeds CAPTURES only, into vectors.lance. The complete rebuild
+/// (facts, lexical, journal, AND the embed-both understanding-summary vectors)
+/// is `localmem replay`; prefer it after a model or schema change.
 pub async fn reindex_home(home: &Path) -> Result<ReindexStats> {
+    reindex_home_sampled(home, None).await
+}
+
+/// Like [`reindex_home`] but stops after `sample` signal captures when set.
+pub async fn reindex_home_sampled(home: &Path, sample: Option<u64>) -> Result<ReindexStats> {
     let event_log = EventLog::open(home).context("open event log for read")?;
 
     let model_dir = resolve_model_dir(home);
@@ -58,6 +70,20 @@ pub async fn reindex_home(home: &Path) -> Result<ReindexStats> {
         .await
         .context("open fresh vector store")?;
 
+    // Hardware-aware batched embed+write, shared with `replay`. See
+    // index_batch.rs for why per-chunk writes bloat the store.
+    let tuning = crate::config::Config::load(home)
+        .map(|c| c.indexing.resolved())
+        .unwrap_or_else(|_| crate::config::IndexingSection::default().resolved());
+    info!(
+        cores = tuning.cores,
+        embed_batch = tuning.embed_batch,
+        flush_rows = tuning.flush_rows,
+        sample = ?sample,
+        "reindex: batched indexing tuned for this machine"
+    );
+    let mut batcher = crate::index_batch::VectorBatcher::new(&mut embedder, &vector_store, tuning);
+
     let mut stats = ReindexStats::default();
     for ev_result in event_log.iter().context("open event log iterator")? {
         let event = ev_result.context("read event from event log")?;
@@ -66,15 +92,33 @@ pub async fn reindex_home(home: &Path) -> Result<ReindexStats> {
             continue;
         };
         stats.captures_seen += 1;
-        let vec = embedder
-            .embed(&payload.text)
-            .context("embed capture during reindex")?;
-        vector_store
-            .add(&event.id.to_string(), &vec, &payload.text, event.ts)
+        // Retrieval hygiene parity with replay: ephemeral tool-traces never
+        // enter the search surface, so reindex must skip them too or it would
+        // re-pollute vectors.lance with the exact noise replay strips.
+        if payload.is_ephemeral() {
+            continue;
+        }
+        let tags_json = serde_json::to_string(&payload.tags).unwrap_or_else(|_| "{}".into());
+        let chunks = crate::chunk::chunk_text(&payload.text);
+        if chunks.is_empty() {
+            continue;
+        }
+        let added = chunks.len() as u64;
+        batcher
+            .add_capture(&event.id.to_string(), chunks, &tags_json, event.ts)
             .await
-            .context("write embedding during reindex")?;
-        stats.vectors_written += 1;
+            .context("queue capture chunks during reindex")?;
+        stats.vectors_written += added;
+        if let Some(limit) = sample {
+            if stats.vectors_written >= limit {
+                break;
+            }
+        }
     }
+    let written = batcher.finish().await.context("flush vector batcher after reindex")?;
+    // `vectors_written` counts queued chunks; reconcile with what actually
+    // landed so the stat can never overstate the store (they match in practice).
+    stats.vectors_written = written;
 
     if stash.exists() {
         std::fs::remove_dir_all(&stash)
@@ -145,6 +189,7 @@ mod tests {
     fn capture(text: &str) -> Event {
         Event::new(
             EventKind::Capture(CapturePayload {
+                time: None,
                 text: text.into(),
                 rewritten_text: None,
                 kind: Default::default(),

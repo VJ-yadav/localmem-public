@@ -37,7 +37,34 @@ const MIGRATIONS: &[(i32, &str)] = &[
     (1, include_str!("../migrations/0001_init.sql")),
     (2, include_str!("../migrations/0002_facts_tags.sql")),
     (3, include_str!("../migrations/0003_facts_kind.sql")),
+    (4, include_str!("../migrations/0004_entity_nodes.sql")),
 ];
+
+/// Resolution key for an entity surface form: lowercased, trimmed, and internal
+/// whitespace collapsed to single spaces. This is what makes "LocalMem",
+/// "localmem", and "localmem " resolve to ONE graph node (P2 entity resolution,
+/// deterministic layer). The embedding-based near-duplicate merge (LanceDB) is a
+/// follow-on layer on top of this; canonicalization kills the bulk of the
+/// case/whitespace scatter first.
+pub fn canonicalize_entity(name: &str) -> String {
+    name.split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .to_lowercase()
+}
+
+/// A resolved graph node: many `UnderstoodEntity` mentions of the same
+/// `canonical` collapsed into one typed node. `kind` is the dominant kind across
+/// mentions; `display_name` is the most-recent surface form.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ResolvedEntity {
+    pub canonical: String,
+    pub display_name: String,
+    pub kind: String,
+    pub mentions: u64,
+    pub first_seen: DateTime<Utc>,
+    pub last_seen: DateTime<Utc>,
+}
 
 /// T-60: one row returned by [`FactsStore::entity_graph_walk`]. Surfaces
 /// the source CAPTURE id (not the fact id) so consumers can merge with
@@ -52,6 +79,9 @@ pub struct EntityGraphRow {
     pub depth: u32,
     pub confidence: f64,
     pub score: f32,
+    /// Latest valid-time among the facts on this edge, so the retriever can
+    /// surface a hit's `valid_from` (temporal reasoning) like the hybrid path.
+    pub valid_from: DateTime<Utc>,
 }
 
 /// In-memory row mirroring the `facts` table. Mirrors but does not reuse
@@ -387,8 +417,22 @@ impl FactsStore {
         visibility: crate::reserved_tags::Visibility,
         now: DateTime<Utc>,
     ) -> Result<Vec<Fact>> {
+        self.facts_for_subject_scoped(subject, tag_filter, None, visibility, now)
+    }
+
+    /// Project-scoped companion of [`Self::facts_for_subject_filtered`]. Applies
+    /// the shared SPEC §2.8 scope predicate (project + global) in addition to
+    /// the subset `tag_filter`. Pass `scope = None` for the unscoped behavior.
+    pub fn facts_for_subject_scoped(
+        &self,
+        subject: &str,
+        tag_filter: Option<&BTreeMap<String, String>>,
+        scope: Option<&crate::retriever::Scope>,
+        visibility: crate::reserved_tags::Visibility,
+        now: DateTime<Utc>,
+    ) -> Result<Vec<Fact>> {
         let rows = self.facts_for_subject(subject)?;
-        Ok(apply_filters(rows, tag_filter, visibility, now))
+        Ok(apply_filters(rows, tag_filter, scope, visibility, now))
     }
 
     /// Tag-filtered companion of [`Self::all_live_facts`] (T-51b +
@@ -402,40 +446,54 @@ impl FactsStore {
         visibility: crate::reserved_tags::Visibility,
         now: DateTime<Utc>,
     ) -> Result<Vec<Fact>> {
-        let rows = self.all_live_facts(at_time, subject)?;
-        Ok(apply_filters(rows, tag_filter, visibility, now))
+        self.all_live_facts_scoped(at_time, subject, tag_filter, None, visibility, now)
     }
 
-    /// Smart forgetting (T-56). Find every still-live fact with the
-    /// same `(subject, predicate)` as `new_fact` and retire it by
-    /// setting `retired_at = new_fact.valid_from`. Returns the ids
-    /// of the retired rows so the caller can emit `Update` events
-    /// + journal entries that record the contradiction.
+    /// Project-scoped companion of [`Self::all_live_facts_filtered`]. Applies
+    /// the shared SPEC §2.8 scope predicate (project + global) on top of the
+    /// subset `tag_filter`. Pass `scope = None` for the unscoped behavior.
+    pub fn all_live_facts_scoped(
+        &self,
+        at_time: DateTime<Utc>,
+        subject: Option<&str>,
+        tag_filter: Option<&BTreeMap<String, String>>,
+        scope: Option<&crate::retriever::Scope>,
+        visibility: crate::reserved_tags::Visibility,
+        now: DateTime<Utc>,
+    ) -> Result<Vec<Fact>> {
+        let rows = self.all_live_facts(at_time, subject)?;
+        Ok(apply_filters(rows, tag_filter, scope, visibility, now))
+    }
+
+    /// Valid-time-ordered contradiction resolution (T-56 + P1). Reconciles
+    /// `new_fact` against prior live facts for the same `(subject, predicate)`
+    /// by VALID TIME, not ingest order. This is what lets an imported, older
+    /// fact slot into the timeline without wrongly overwriting a genuinely
+    /// newer fact (the bitemporal rule: integrate on valid time, time-travel
+    /// on system time).
     ///
-    /// Two gates per SPEC_V0_2 "Smart Forgetting":
-    /// 1. `new_fact.confidence < CONFIDENCE_THRESHOLD` (0.7) → no
-    ///    retirement. Low-confidence facts append without
-    ///    invalidating prior beliefs; the journal flags the
-    ///    contradiction for the user to resolve.
-    /// 2. `new_fact.kind` opts out of contradiction resolution
-    ///    (currently only `Kind::Decision`) → no retirement, even
-    ///    if confidence is high. Decisions are append-only audit
-    ///    entries.
+    /// Behaviour:
+    /// - Prior live facts OLDER-or-equal in valid time
+    ///   (`valid_from <= new_fact.valid_from`) are superseded: their
+    ///   `retired_at` closes at `new_fact.valid_from`. Their ids are returned
+    ///   so the caller can emit `Update` events + journal entries.
+    /// - If a prior live fact is NEWER (`valid_from > new_fact.valid_from`),
+    ///   `new_fact` is the older one and does NOT retire it. Instead
+    ///   `new_fact.retired_at` is set (in place) to the earliest such newer
+    ///   fact's `valid_from`, bounding the imported fact so as-of queries after
+    ///   that instant return the newer belief.
     ///
-    /// We also exclude prior facts whose own kind is `decision`
-    /// from the retirement set: a decision in the audit trail
-    /// stays put even when a non-decision new fact would otherwise
-    /// retire it. The asymmetry mirrors the spec's
-    /// "Decision kind is append-only".
+    /// Two gates, unchanged: confidence below `CONFIDENCE_THRESHOLD` (0.7) and
+    /// `new_fact.kind` opting out (only `Kind::Decision`) both short-circuit to
+    /// no resolution. Prior `decision` rows are never retired.
     ///
-    /// The caller is responsible for emitting the `Update` event in
-    /// `events.jsonl` — this method only touches DuckDB. That
-    /// separation matters because the new fact's id must equal the
-    /// `Update` event's id (so `replay` materialises the new fact
-    /// under the right primary key); the caller has to allocate
-    /// the id before invoking `resolve_contradiction` so it can
-    /// thread it into both the event and the fact row.
-    pub fn resolve_contradiction(&self, new_fact: &Fact) -> Result<Vec<EventId>> {
+    /// Replay-safe: a pure recomputation over the current table, so
+    /// `localmem replay` re-runs it per fact in log order and reproduces the
+    /// same end state. The caller allocates `new_fact.id` before calling (so it
+    /// matches whichever `fact`/`update` event lands in events.jsonl) and
+    /// inserts `new_fact` (carrying any `retired_at` set here) AFTER this
+    /// returns.
+    pub fn resolve_contradiction(&self, new_fact: &mut Fact) -> Result<Vec<EventId>> {
         if !new_fact.kind.allows_contradiction_resolution() {
             return Ok(Vec::new());
         }
@@ -443,49 +501,70 @@ impl FactsStore {
             return Ok(Vec::new());
         }
 
-        // Find live prior facts. `kind IS NULL` covers v0.1.x rows
-        // that pre-date T-52; we treat NULL as `Kind::Note`, which
-        // allows retirement. The new fact's own id is not in the
-        // table yet (the caller hasn't inserted it), so we don't
-        // need an explicit self-exclusion clause.
+        // Live prior facts for this (subject, predicate), WITH their
+        // valid_from so we can order by valid time. `kind IS NULL` covers
+        // v0.1.x rows that pre-date T-52 (treated as Note, retirable). The new
+        // fact's own row is not inserted yet; the id filter below guards the
+        // replay path where it might already exist.
         let mut stmt = self
             .conn
             .prepare(
-                "SELECT id FROM facts \
+                "SELECT id, epoch_us(valid_from) FROM facts \
                  WHERE subject = ? AND predicate = ? \
                  AND retired_at IS NULL \
                  AND (kind IS NULL OR kind != 'decision')",
             )
             .context("prepare resolve_contradiction select")?;
-        let candidates: Vec<EventId> = stmt
+        let priors: Vec<(EventId, DateTime<Utc>)> = stmt
             .query_map(params![new_fact.subject, new_fact.predicate], |row| {
-                let s: String = row.get(0)?;
-                Ok(s)
+                let id: String = row.get(0)?;
+                let us: i64 = row.get(1)?;
+                Ok((id, us))
             })
             .context("execute resolve_contradiction select")?
-            .collect::<std::result::Result<Vec<String>, _>>()
+            .collect::<std::result::Result<Vec<(String, i64)>, _>>()
             .context("collect contradiction candidates")?
             .into_iter()
-            .filter_map(|s| s.parse::<EventId>().ok())
-            .filter(|id| id != &new_fact.id)
+            .filter_map(|(s, us)| {
+                Some((
+                    s.parse::<EventId>().ok()?,
+                    DateTime::<Utc>::from_timestamp_micros(us)?,
+                ))
+            })
+            .filter(|(id, _)| id != &new_fact.id)
             .collect();
 
-        if candidates.is_empty() {
-            return Ok(Vec::new());
+        let vf = new_fact.valid_from;
+        let mut to_retire: Vec<EventId> = Vec::new();
+        let mut earliest_newer: Option<DateTime<Utc>> = None;
+        for (id, prior_vf) in &priors {
+            if *prior_vf <= vf {
+                to_retire.push(*id);
+            } else {
+                earliest_newer = Some(match earliest_newer {
+                    Some(e) if e <= *prior_vf => e,
+                    _ => *prior_vf,
+                });
+            }
         }
 
-        // Retire all matches in a single transaction so a crash
-        // mid-loop doesn't leave the table half-updated.
-        let ts = fmt_ts(&new_fact.valid_from);
-        for id in &candidates {
+        // The new fact is older than an existing belief: bound its visibility
+        // at the newer fact's valid_from rather than overwriting newer truth.
+        if let Some(bound) = earliest_newer {
+            new_fact.retired_at = Some(bound);
+        }
+
+        // Supersede older-or-equal priors: close each at new_fact.valid_from.
+        let vf_str = fmt_ts(&vf);
+        for id in &to_retire {
             self.conn
                 .execute(
                     "UPDATE facts SET retired_at = CAST(? AS TIMESTAMPTZ) WHERE id = ?",
-                    params![ts, id.to_string()],
+                    params![vf_str, id.to_string()],
                 )
                 .with_context(|| format!("retire contradicted fact {id}"))?;
         }
-        Ok(candidates)
+        Ok(to_retire)
     }
 
     /// Mark every still-live fact tied to `target_id` as retired at
@@ -589,13 +668,13 @@ impl FactsStore {
             .join(",");
         let sql = format!(
             "WITH RECURSIVE walk AS (
-                SELECT id, subject, predicate, object, confidence, source_events, 0 AS depth
+                SELECT id, subject, predicate, object, confidence, source_events, valid_from, 0 AS depth
                 FROM facts
                 WHERE LOWER(subject) IN ({in_list})
                   AND retired_at IS NULL
                   AND confidence >= ?
                 UNION ALL
-                SELECT f.id, f.subject, f.predicate, f.object, f.confidence, f.source_events, w.depth + 1
+                SELECT f.id, f.subject, f.predicate, f.object, f.confidence, f.source_events, f.valid_from, w.depth + 1
                 FROM facts f
                 JOIN walk w ON LOWER(w.object) = LOWER(f.subject)
                 WHERE f.retired_at IS NULL
@@ -608,7 +687,8 @@ impl FactsStore {
                 predicate,
                 object,
                 MIN(depth) AS min_depth,
-                MAX(confidence) AS max_confidence
+                MAX(confidence) AS max_confidence,
+                MAX(valid_from) AS valid_from
             FROM walk
             WHERE source_events IS NOT NULL AND len(source_events) > 0
             GROUP BY capture_id, subject, predicate, object
@@ -621,7 +701,12 @@ impl FactsStore {
             .context("prepare entity_graph_walk")?;
         let rows = stmt
             .query_map(
-                params![min_confidence, min_confidence, max_depth as i64, limit as i64],
+                params![
+                    min_confidence,
+                    min_confidence,
+                    max_depth as i64,
+                    limit as i64
+                ],
                 |row| {
                     let capture_id: String = row.get(0)?;
                     let subject: String = row.get(1)?;
@@ -629,6 +714,17 @@ impl FactsStore {
                     let object: String = row.get(3)?;
                     let depth: i64 = row.get(4)?;
                     let confidence: f64 = row.get(5)?;
+                    // TIMESTAMPTZ reads back as i64 epoch micros via duckdb-rs
+                    // (same pattern as row_to_fact). MAX(valid_from) is the
+                    // latest valid-time among the grouped facts for this edge.
+                    let valid_from_us: i64 = row.get(6)?;
+                    let valid_from = ts_from_epoch_us(valid_from_us).map_err(|e| {
+                        duckdb::Error::FromSqlConversionFailure(
+                            6,
+                            duckdb::types::Type::Text,
+                            e.into(),
+                        )
+                    })?;
                     // Score: closer depth wins (1/(1+d)) blended with
                     // confidence (so a depth-1 0.9-confidence edge
                     // beats a depth-1 0.7-confidence edge). Bounded
@@ -642,6 +738,7 @@ impl FactsStore {
                         depth: depth as u32,
                         confidence,
                         score: score as f32,
+                        valid_from,
                     })
                 },
             )
@@ -651,9 +748,7 @@ impl FactsStore {
     }
 
     pub fn find_by_id(&self, id: &EventId) -> Result<Option<Fact>> {
-        let sql = format!(
-            "SELECT {SELECT_FACT_COLS} FROM facts WHERE id = ? LIMIT 1"
-        );
+        let sql = format!("SELECT {SELECT_FACT_COLS} FROM facts WHERE id = ? LIMIT 1");
         let mut stmt = self.conn.prepare(&sql).context("prepare find_by_id")?;
         let mut rows = stmt
             .query_map(params![id.to_string()], fact_from_row)
@@ -711,6 +806,111 @@ impl FactsStore {
             .context("evaluate is_event_valid_at")?;
         Ok(keep)
     }
+
+    // ---- P2 typed-graph node layer (entity_mentions) --------------------
+
+    /// Record one mention of a typed entity by an understanding. Append-only
+    /// (mirrors the event log): `canonical` is derived from `display_name` so
+    /// resolution is consistent with fact subjects/objects. Caller passes the
+    /// source CAPTURE id as provenance.
+    pub fn insert_entity_mention(
+        &self,
+        display_name: &str,
+        kind: &str,
+        valid_from: DateTime<Utc>,
+        source_event: &str,
+    ) -> Result<()> {
+        let canonical = canonicalize_entity(display_name);
+        if canonical.is_empty() {
+            return Ok(());
+        }
+        self.conn
+            .execute(
+                "INSERT INTO entity_mentions (canonical, display_name, kind, valid_from, source_event)
+                 VALUES (?, ?, ?, CAST(? AS TIMESTAMPTZ), ?)",
+                params![
+                    canonical,
+                    display_name.trim(),
+                    kind,
+                    fmt_ts(&valid_from),
+                    source_event,
+                ],
+            )
+            .context("insert entity mention")?;
+        Ok(())
+    }
+
+    /// Drop every entity mention. Used by the offline graph rebuild so a re-run
+    /// is idempotent (no double-counting). Replay starts from an empty derived
+    /// dir, so it never needs this.
+    pub fn clear_entity_mentions(&self) -> Result<()> {
+        self.conn
+            .execute_batch("DELETE FROM entity_mentions")
+            .context("clear entity mentions")?;
+        Ok(())
+    }
+
+    /// All resolved graph nodes: mentions grouped by `canonical` into one typed
+    /// node each. `kind` is the dominant kind (mode) across mentions;
+    /// `display_name` is the most-recent surface form. Ordered by mention count
+    /// desc so the densest nuclei come first.
+    pub fn resolved_entities(&self) -> Result<Vec<ResolvedEntity>> {
+        let sql = "SELECT canonical, \
+                       arg_max(display_name, valid_from) AS display_name, \
+                       mode(kind) AS kind, \
+                       COUNT(*) AS mentions, \
+                       epoch_us(MIN(valid_from)) AS first_seen, \
+                       epoch_us(MAX(valid_from)) AS last_seen \
+                   FROM entity_mentions \
+                   GROUP BY canonical \
+                   ORDER BY mentions DESC, canonical ASC";
+        let mut stmt = self
+            .conn
+            .prepare(sql)
+            .context("prepare resolved_entities")?;
+        let rows = stmt
+            .query_map([], |row| {
+                let canonical: String = row.get(0)?;
+                let display_name: String = row.get(1)?;
+                let kind: String = row.get(2)?;
+                let mentions: i64 = row.get(3)?;
+                let first_us: i64 = row.get(4)?;
+                let last_us: i64 = row.get(5)?;
+                let conv = |us: i64, idx| {
+                    ts_from_epoch_us(us).map_err(|e| {
+                        duckdb::Error::FromSqlConversionFailure(
+                            idx,
+                            duckdb::types::Type::Text,
+                            e.into(),
+                        )
+                    })
+                };
+                Ok(ResolvedEntity {
+                    canonical,
+                    display_name,
+                    kind,
+                    mentions: mentions as u64,
+                    first_seen: conv(first_us, 4)?,
+                    last_seen: conv(last_us, 5)?,
+                })
+            })
+            .context("execute resolved_entities")?;
+        rows.collect::<std::result::Result<Vec<_>, _>>()
+            .context("collect resolved_entities rows")
+    }
+
+    /// Count of distinct resolved entities (graph nodes). Cheap; used by stats.
+    pub fn entity_count(&self) -> Result<u64> {
+        let n: i64 = self
+            .conn
+            .query_row(
+                "SELECT COUNT(DISTINCT canonical) FROM entity_mentions",
+                [],
+                |row| row.get(0),
+            )
+            .context("count resolved entities")?;
+        Ok(n as u64)
+    }
 }
 
 /// SELECT projection used by every bitemporal query. Order must match
@@ -739,10 +939,12 @@ const SELECT_FACT_COLS: &str = "id, subject, predicate, object, confidence, \
 fn apply_filters(
     facts: Vec<Fact>,
     tag_filter: Option<&BTreeMap<String, String>>,
+    scope: Option<&crate::retriever::Scope>,
     visibility: crate::reserved_tags::Visibility,
     now: DateTime<Utc>,
 ) -> Vec<Fact> {
     let active_tag_filter = tag_filter.filter(|m| !m.is_empty());
+    let scope = scope.cloned();
     facts
         .into_iter()
         .filter(|fact| {
@@ -750,6 +952,12 @@ fn apply_filters(
                 if !crate::tag_match::matches(&fact.tags, f) {
                     return false;
                 }
+            }
+            // SPEC §2.8 project scope: same predicate as the retriever (project
+            // key match, or untagged-global when include_global). Unlike the
+            // subset `tag_filter` above, this KEEPS global/untagged facts.
+            if !crate::retriever::scope_matches(&fact.tags, &scope) {
+                return false;
             }
             // `valid_from` on a derived fact mirrors the source
             // capture's ts (see `build_fact_event` in write.rs /
@@ -966,6 +1174,66 @@ mod tests {
         }
         let store = FactsStore::open(tmp.path()).unwrap();
         assert_eq!(store.count().unwrap(), 1);
+    }
+
+    #[test]
+    fn entity_mentions_resolve_and_dedup_by_canonical() {
+        let tmp = tempdir().unwrap();
+        let store = FactsStore::open(tmp.path()).unwrap();
+        let t0 = ts(1_700_000_000);
+        let t1 = ts(1_700_001_000);
+        // Three spellings of the same project + a stray mislabel; one tool.
+        store
+            .insert_entity_mention("localmem", "project", t0, "c1")
+            .unwrap();
+        store
+            .insert_entity_mention("LocalMem", "project", t1, "c2")
+            .unwrap();
+        store
+            .insert_entity_mention("  localmem ", "thing", t0, "c3")
+            .unwrap();
+        store
+            .insert_entity_mention("LanceDB", "tool", t0, "c4")
+            .unwrap();
+        // Blank canonicalizes to empty and is dropped.
+        store
+            .insert_entity_mention("   ", "thing", t0, "c5")
+            .unwrap();
+
+        assert_eq!(
+            store.entity_count().unwrap(),
+            2,
+            "localmem dedups to one node"
+        );
+        let nodes = store.resolved_entities().unwrap();
+        let lm = nodes.iter().find(|e| e.canonical == "localmem").unwrap();
+        assert_eq!(lm.mentions, 3, "three spellings collapse into one node");
+        assert_eq!(
+            lm.kind, "project",
+            "dominant kind wins over the lone 'thing'"
+        );
+        assert_eq!(
+            lm.display_name, "LocalMem",
+            "most-recent surface form is the display"
+        );
+        // Densest node sorts first.
+        assert_eq!(nodes[0].canonical, "localmem");
+    }
+
+    #[test]
+    fn rebuild_clears_so_reruns_do_not_double_count() {
+        let tmp = tempdir().unwrap();
+        let store = FactsStore::open(tmp.path()).unwrap();
+        let t0 = ts(1_700_000_000);
+        store
+            .insert_entity_mention("localmem", "project", t0, "c1")
+            .unwrap();
+        store.clear_entity_mentions().unwrap();
+        assert_eq!(store.entity_count().unwrap(), 0);
+        store
+            .insert_entity_mention("localmem", "project", t0, "c1")
+            .unwrap();
+        assert_eq!(store.entity_count().unwrap(), 1);
     }
 
     #[test]
@@ -1341,6 +1609,47 @@ mod tests {
     }
 
     #[test]
+    fn scoped_facts_include_global_but_exclude_other_project() {
+        // The cohesion invariant: a project scope keeps THIS project's facts +
+        // global (untagged) facts, and drops another project's. Same rule the
+        // retriever/search/events paths enforce via the shared predicate.
+        let tmp = tempdir().unwrap();
+        let store = FactsStore::open(tmp.path()).unwrap();
+        let lm = fact_with_tags(
+            "user",
+            "rust",
+            ts(1_700_000_000),
+            &[("project_path", "/home/lm")],
+        );
+        let other = fact_with_tags(
+            "user",
+            "go",
+            ts(1_700_000_000),
+            &[("project_path", "/home/other")],
+        );
+        let global = sample_fact("user", "haskell", ts(1_700_000_000)); // untagged
+        store.insert(&lm).unwrap();
+        store.insert(&other).unwrap();
+        store.insert(&global).unwrap();
+
+        let scope = crate::retriever::Scope::project_path("/home/lm");
+        let hits = store
+            .facts_for_subject_scoped(
+                "user",
+                None,
+                Some(&scope),
+                crate::reserved_tags::Visibility::Default,
+                Utc::now(),
+            )
+            .unwrap();
+        let objs: std::collections::HashSet<&str> =
+            hits.iter().map(|f| f.object.as_str()).collect();
+        assert!(objs.contains("rust"), "scoped project fact present");
+        assert!(objs.contains("haskell"), "global/untagged fact INCLUDED");
+        assert!(!objs.contains("go"), "another project's fact EXCLUDED");
+    }
+
+    #[test]
     fn facts_for_subject_filtered_with_none_returns_all_rows() {
         let tmp = tempdir().unwrap();
         let store = FactsStore::open(tmp.path()).unwrap();
@@ -1497,7 +1806,7 @@ mod tests {
         // arrives later. The new fact's row is NOT inserted yet;
         // resolve_contradiction returns the ids that *would* be
         // retired so the caller can emit an Update event.
-        let new = fact_with_kind_and_confidence(
+        let mut new = fact_with_kind_and_confidence(
             "user",
             "lives_in",
             "Berlin",
@@ -1505,7 +1814,7 @@ mod tests {
             crate::kind::Kind::Fact,
             0.9,
         );
-        let retired = store.resolve_contradiction(&new).unwrap();
+        let retired = store.resolve_contradiction(&mut new).unwrap();
         assert_eq!(retired, vec![old.id]);
         // The prior row is now retired in the table. We assert via
         // `facts_at_time` (which honours retired_at) rather than
@@ -1532,7 +1841,7 @@ mod tests {
         );
         store.insert(&old).unwrap();
         // Low-confidence new fact: append-only, must NOT retire prior.
-        let new = fact_with_kind_and_confidence(
+        let mut new = fact_with_kind_and_confidence(
             "user",
             "lives_in",
             "Berlin",
@@ -1540,7 +1849,7 @@ mod tests {
             crate::kind::Kind::Fact,
             0.5,
         );
-        let retired = store.resolve_contradiction(&new).unwrap();
+        let retired = store.resolve_contradiction(&mut new).unwrap();
         assert!(
             retired.is_empty(),
             "low-confidence facts must not retire prior beliefs"
@@ -1566,7 +1875,7 @@ mod tests {
         // New fact is itself a Decision: per spec decisions are
         // append-only, so the new decision doesn't invalidate the
         // prior choice.
-        let new = fact_with_kind_and_confidence(
+        let mut new = fact_with_kind_and_confidence(
             "team",
             "chose",
             "DuckDB",
@@ -1574,7 +1883,7 @@ mod tests {
             crate::kind::Kind::Decision,
             0.9,
         );
-        let retired = store.resolve_contradiction(&new).unwrap();
+        let retired = store.resolve_contradiction(&mut new).unwrap();
         assert!(
             retired.is_empty(),
             "Decision new facts must not retire prior facts"
@@ -1598,7 +1907,7 @@ mod tests {
             0.9,
         );
         store.insert(&prior_decision).unwrap();
-        let new = fact_with_kind_and_confidence(
+        let mut new = fact_with_kind_and_confidence(
             "team",
             "chose",
             "DuckDB",
@@ -1606,7 +1915,7 @@ mod tests {
             crate::kind::Kind::Fact,
             0.9,
         );
-        let retired = store.resolve_contradiction(&new).unwrap();
+        let retired = store.resolve_contradiction(&mut new).unwrap();
         assert!(
             retired.is_empty(),
             "prior Decision rows must stay live regardless of new fact"
@@ -1617,7 +1926,7 @@ mod tests {
     fn resolve_contradiction_no_match_returns_empty() {
         let tmp = tempdir().unwrap();
         let store = FactsStore::open(tmp.path()).unwrap();
-        let new = fact_with_kind_and_confidence(
+        let mut new = fact_with_kind_and_confidence(
             "fresh_subject",
             "fresh_predicate",
             "x",
@@ -1625,7 +1934,7 @@ mod tests {
             crate::kind::Kind::Fact,
             0.9,
         );
-        let retired = store.resolve_contradiction(&new).unwrap();
+        let retired = store.resolve_contradiction(&mut new).unwrap();
         assert!(retired.is_empty());
     }
 
@@ -1643,7 +1952,7 @@ mod tests {
         );
         old.retired_at = Some(ts(1_700_000_500));
         store.insert(&old).unwrap();
-        let new = fact_with_kind_and_confidence(
+        let mut new = fact_with_kind_and_confidence(
             "user",
             "lives_in",
             "Berlin",
@@ -1651,7 +1960,7 @@ mod tests {
             crate::kind::Kind::Fact,
             0.9,
         );
-        let retired = store.resolve_contradiction(&new).unwrap();
+        let retired = store.resolve_contradiction(&mut new).unwrap();
         assert!(
             retired.is_empty(),
             "already-retired rows must not surface again as retire candidates"
@@ -1687,7 +1996,7 @@ mod tests {
         );
         store.insert(&a).unwrap();
         store.insert(&b).unwrap();
-        let new = fact_with_kind_and_confidence(
+        let mut new = fact_with_kind_and_confidence(
             "user",
             "lives_in",
             "Berlin",
@@ -1695,12 +2004,91 @@ mod tests {
             crate::kind::Kind::Fact,
             0.9,
         );
-        let retired = store.resolve_contradiction(&new).unwrap();
+        let retired = store.resolve_contradiction(&mut new).unwrap();
         let mut sorted = retired.clone();
         sorted.sort();
         let mut expected = vec![a.id, b.id];
         expected.sort();
         assert_eq!(sorted, expected);
+    }
+
+    #[test]
+    fn resolve_contradiction_older_fact_does_not_retire_newer() {
+        // P1 / the import case: a NEWER belief already exists; an OLDER fact
+        // (e.g. imported from a 2-year-old transcript) must NOT overwrite it.
+        let tmp = tempdir().unwrap();
+        let store = FactsStore::open(tmp.path()).unwrap();
+        let newer = fact_with_kind_and_confidence(
+            "user",
+            "lives_in",
+            "Berlin",
+            ts(1_700_010_000),
+            crate::kind::Kind::Fact,
+            0.9,
+        );
+        store.insert(&newer).unwrap();
+        // Imported older fact arrives later in ingest order but earlier in
+        // valid time.
+        let mut older = fact_with_kind_and_confidence(
+            "user",
+            "lives_in",
+            "Tokyo",
+            ts(1_700_000_000),
+            crate::kind::Kind::Fact,
+            0.9,
+        );
+        let retired = store.resolve_contradiction(&mut older).unwrap();
+        assert!(
+            retired.is_empty(),
+            "an older fact must not retire the newer belief"
+        );
+        // Instead the older fact is bounded at the newer fact's valid_from.
+        assert_eq!(older.retired_at, Some(ts(1_700_010_000)));
+        store.insert(&older).unwrap();
+        // As-of NOW: only the newer belief (Berlin) is live.
+        let now = store.facts_at_time("user", ts(1_700_020_000)).unwrap();
+        assert_eq!(now.len(), 1);
+        assert_eq!(now[0].object, "Berlin");
+        // As-of a time between the two: the older belief (Tokyo) shows.
+        let between = store.facts_at_time("user", ts(1_700_005_000)).unwrap();
+        assert_eq!(between.len(), 1);
+        assert_eq!(between[0].object, "Tokyo");
+    }
+
+    #[test]
+    fn resolve_contradiction_newer_fact_supersedes_older_timeline() {
+        // The in-order case still yields a correct as-of timeline.
+        let tmp = tempdir().unwrap();
+        let store = FactsStore::open(tmp.path()).unwrap();
+        let mut old = fact_with_kind_and_confidence(
+            "user",
+            "uses",
+            "Postgres",
+            ts(1_700_000_000),
+            crate::kind::Kind::Fact,
+            0.9,
+        );
+        let r0 = store.resolve_contradiction(&mut old).unwrap();
+        assert!(r0.is_empty());
+        store.insert(&old).unwrap();
+        let mut new = fact_with_kind_and_confidence(
+            "user",
+            "uses",
+            "SQLite",
+            ts(1_700_010_000),
+            crate::kind::Kind::Fact,
+            0.9,
+        );
+        let r1 = store.resolve_contradiction(&mut new).unwrap();
+        assert_eq!(r1, vec![old.id]);
+        assert!(new.retired_at.is_none(), "the current fact is not bounded");
+        store.insert(&new).unwrap();
+        let now = store.facts_at_time("user", ts(1_700_020_000)).unwrap();
+        assert_eq!(now.len(), 1);
+        assert_eq!(now[0].object, "SQLite");
+        let earlier = store.facts_at_time("user", ts(1_700_005_000)).unwrap();
+        assert_eq!(earlier.len(), 1);
+        assert_eq!(earlier[0].object, "Postgres");
     }
 
     // ---- T-53: discovery primitives -----------------------------------

@@ -29,6 +29,7 @@ use crate::lexical::{LexicalIndex, LexicalResultExt};
 use crate::policy::{EvalContext, Policy};
 use crate::vectors::VectorStore;
 use anyhow::{Context, Result};
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use tracing::{info, warn};
 
@@ -53,6 +54,17 @@ pub struct ReplayStats {
     pub capture_updates: u64,
     pub policy_events_skipped: u64,
     pub import_events_skipped: u64,
+    /// Layer 2 understanding events seen on replay. The understanding is held
+    /// in the event log itself (the source of truth); there is no separate
+    /// derived store to rebuild yet, so these are counted, not re-applied. When
+    /// a DuckDB understanding index lands (briefing/viewer scale path), this arm
+    /// is where it gets rebuilt.
+    pub understanding_events_seen: u64,
+    /// Facts skipped on replay because they were derived from an ephemeral
+    /// capture (a tool-use trace). Keeps command/file-path noise out of the
+    /// facts store, graph, and profile while leaving the raw trace + its fact
+    /// event untouched in the log.
+    pub facts_skipped_ephemeral: u64,
 }
 
 /// Entry point for the `replay` subcommand.
@@ -103,8 +115,34 @@ pub async fn replay_home(home: &Path) -> Result<ReplayStats> {
     let journal = Journal::open(home).context("open journal")?;
     let policy = Policy::load(home).context("load policy")?;
 
+    // Hardware-aware batched embed+write. One batcher accumulates chunks across
+    // all captures AND understanding summaries, embedding in `embed_batch`
+    // forward passes and writing in `flush_rows` transactions. This is what
+    // keeps the rebuild from opening one LanceDB transaction per chunk (the
+    // per-chunk shape bloated the store to 857 MB and stalled on an 8 GB box).
+    let tuning = crate::config::Config::load(home)
+        .map(|c| c.indexing.resolved())
+        .unwrap_or_else(|_| crate::config::IndexingSection::default().resolved());
+    let mut batcher = match (embedder.as_mut(), vector_store.as_ref()) {
+        (Some(e), Some(vs)) => {
+            info!(
+                cores = tuning.cores,
+                embed_batch = tuning.embed_batch,
+                flush_rows = tuning.flush_rows,
+                "replay: batched indexing tuned for this machine"
+            );
+            Some(crate::index_batch::VectorBatcher::new(e, vs, tuning))
+        }
+        _ => None,
+    };
+
     let mut stats = ReplayStats::default();
     let mut recent: Vec<Event> = Vec::with_capacity(POLICY_RECENT_WINDOW);
+    // Capture ids of ephemeral tool-use traces, accumulated as we stream the
+    // log in order. A fact always follows its source capture, so by the time a
+    // Fact event is reached its source's ephemerality is already known; facts
+    // derived from an ephemeral capture are skipped in the Fact arm below.
+    let mut ephemeral_captures: HashSet<String> = HashSet::new();
 
     for ev_result in event_log.iter().context("open event log iterator")? {
         let event = ev_result.context("read event from event log")?;
@@ -112,6 +150,9 @@ pub async fn replay_home(home: &Path) -> Result<ReplayStats> {
         match &event.kind {
             EventKind::Capture(payload) => {
                 stats.captures_seen += 1;
+                if payload.is_ephemeral() {
+                    ephemeral_captures.insert(event.id.to_string());
+                }
                 let decision = policy
                     .evaluate(&event, &EvalContext { recent: &recent })
                     .context("evaluate policy during replay")?;
@@ -119,14 +160,35 @@ pub async fn replay_home(home: &Path) -> Result<ReplayStats> {
                 journal
                     .append(&entry)
                     .context("append journal entry during replay")?;
-                if decision.action == PolicyAction::Commit {
-                    if let (Some(emb), Some(vs)) = (embedder.as_mut(), vector_store.as_ref()) {
-                        let vec = emb
-                            .embed(&payload.text)
-                            .context("embed capture during replay")?;
-                        vs.add(&event.id.to_string(), &vec, &payload.text, event.ts)
+                // Retrieval hygiene (quality pass): only SIGNAL captures are
+                // lexically indexed + embedded. Ephemeral tool-traces stay in the
+                // event log (audit) but never enter the search stores, so a
+                // rebuild reproduces a clean, noise-free retrieval surface. This
+                // mirrors the write path and purges historical trace-noise from
+                // lexical + vectors on the next replay.
+                if decision.action == PolicyAction::Commit && !payload.is_ephemeral() {
+                    // P0.6: recompute the capture's instant from the immutable
+                    // envelope original (local time + IANA zone) via the bundled
+                    // tzdb, so a tzdb upgrade refreshes the derived recency
+                    // timestamp on replay. No envelope -> fall back to the shell
+                    // ts (legacy captures, unchanged).
+                    let derived_ts = payload
+                        .time
+                        .as_ref()
+                        .map(|t| t.clone().with_recomputed_instant().effective_instant())
+                        .unwrap_or(event.ts);
+                    // P5 (§2.6): chunk on replay too, so a rebuild reproduces the
+                    // same sharp chunked index (each chunk under the capture id).
+                    // §2.8: store the capture's tags on each chunk's vector row.
+                    // The batcher embeds + writes across captures in hardware-tuned
+                    // batches; see index_batch.rs for why per-chunk writes bloat.
+                    if let Some(b) = batcher.as_mut() {
+                        let tags_json =
+                            serde_json::to_string(&payload.tags).unwrap_or_else(|_| "{}".into());
+                        let chunks = crate::chunk::chunk_text(&payload.text);
+                        b.add_capture(&event.id.to_string(), chunks, &tags_json, derived_ts)
                             .await
-                            .context("write embedding during replay")?;
+                            .context("queue capture chunks during replay")?;
                     }
                     lexical
                         .index_event(&event)
@@ -140,7 +202,30 @@ pub async fn replay_home(home: &Path) -> Result<ReplayStats> {
                 // original write; replay just re-materializes its DuckDB
                 // row. We do NOT re-run the extractor here (that would
                 // append new fact events and corrupt the log).
-                let fact = Fact::from_event(event.id, payload, event.ts, None);
+                //
+                // Skip facts derived from an ephemeral trace. Replay would
+                // otherwise re-materialize the command/file-path noise the
+                // understanding worker now refuses to produce — self-healing, so
+                // every rebuild stays clean. The raw trace and this fact event
+                // remain in the log (invariant #1); they just don't populate the
+                // derived facts store, and therefore not the graph or profile
+                // (both projections of facts).
+                if payload
+                    .derived_from
+                    .iter()
+                    .any(|id| ephemeral_captures.contains(&id.to_string()))
+                {
+                    stats.facts_skipped_ephemeral += 1;
+                    continue;
+                }
+                // P1: re-run valid-time resolution so retirement is recomputed
+                // from valid-time order during replay, identically to the
+                // write path. Deterministic because replay processes events in
+                // log order, so the prior-fact state matches write time.
+                let mut fact = Fact::from_event(event.id, payload, event.ts, None);
+                facts
+                    .resolve_contradiction(&mut fact)
+                    .context("resolve contradiction during replay")?;
                 facts.insert(&fact).context("insert fact during replay")?;
                 stats.facts_inserted += 1;
             }
@@ -151,13 +236,16 @@ pub async fn replay_home(home: &Path) -> Result<ReplayStats> {
                 stats.forgets += 1;
             }
             EventKind::Update(payload) => {
-                // Retire the superseded fact, then materialize the new one
-                // under the Update event's own id. The new fact's lineage
-                // points at the same source captures the payload carries.
+                // Materialize the new fact under the Update event's own id and
+                // recompute retirement via valid-time resolution (same path as
+                // a Fact event). P1: the supersedes_id stays in the event for
+                // audit, but retirement is now derived from valid-time order
+                // rather than blindly retiring that one id, so out-of-order
+                // imports rebuild the correct timeline.
+                let mut fact = Fact::from_event(event.id, &payload.new_fact, event.ts, None);
                 facts
-                    .retire_facts_for_target(&payload.supersedes_id.to_string(), event.ts)
-                    .context("retire superseded fact during replay")?;
-                let fact = Fact::from_event(event.id, &payload.new_fact, event.ts, None);
+                    .resolve_contradiction(&mut fact)
+                    .context("resolve contradiction for update during replay")?;
                 facts
                     .insert(&fact)
                     .context("insert new fact for update during replay")?;
@@ -186,7 +274,56 @@ pub async fn replay_home(home: &Path) -> Result<ReplayStats> {
                 // landed in events.jsonl carry the actual data.
                 stats.import_events_skipped += 1;
             }
+            EventKind::Understanding(payload) => {
+                // embed-both (intelligence v2): re-embed the decomposed SUMMARY
+                // under its source capture id, so a rebuild recreates the
+                // precision-layer vector (the raw recall-floor vector is added by
+                // the Capture branch). Recomputable — the summary lives in this
+                // event. Skipped when the source capture was ephemeral (a trace's
+                // summary must not seed search) or when no embedder is loaded.
+                let from_ephemeral = ephemeral_captures.contains(&payload.source_id.to_string());
+                if !from_ephemeral && !payload.summary.trim().is_empty() {
+                    if let Some(b) = batcher.as_mut() {
+                        // §2.8: the Understanding inherits its source capture's
+                        // tags, so the summary vector carries the same scope. The
+                        // summary is a single precision chunk under the source id.
+                        let tags_json =
+                            serde_json::to_string(&payload.tags).unwrap_or_else(|_| "{}".into());
+                        b.add_capture(
+                            &payload.source_id.to_string(),
+                            vec![payload.summary.clone()],
+                            &tags_json,
+                            payload.valid_from,
+                        )
+                        .await
+                        .context("queue understanding summary during replay")?;
+                    }
+                }
+                // P2: rebuild the typed-graph NODE layer from this understanding's
+                // entities, skipping ephemeral sources (consistent with the Fact
+                // arm). Recomputable: the entities live in this event, so a full
+                // replay reproduces the resolved graph from the log alone.
+                if !from_ephemeral {
+                    for e in &payload.entities {
+                        facts
+                            .insert_entity_mention(
+                                &e.name,
+                                &e.kind,
+                                payload.valid_from,
+                                &payload.source_id.to_string(),
+                            )
+                            .context("insert entity mention during replay")?;
+                    }
+                }
+                stats.understanding_events_seen += 1;
+            }
         }
+    }
+    // Drain any chunks still buffered in the batcher (the final partial embed
+    // pass + flush). Skipped silently if no embedder was available.
+    if let Some(b) = batcher {
+        let written = b.finish().await.context("flush vector batcher after replay")?;
+        info!(vectors_written = written, "replay: vector store rebuilt");
     }
     lexical
         .commit()
@@ -238,17 +375,20 @@ fn emit_stats(stats: &ReplayStats, as_json: bool) -> Result<()> {
             "updates": stats.updates,
             "policy_skipped": stats.policy_events_skipped,
             "imports_skipped": stats.import_events_skipped,
+            "understanding_events": stats.understanding_events_seen,
+            "facts_skipped_ephemeral": stats.facts_skipped_ephemeral,
         });
         println!("{json}");
     } else {
         println!(
-            "replay: events={} captures={} committed={} facts={} forgets={} updates={}",
+            "replay: events={} captures={} committed={} facts={} forgets={} updates={} facts_skipped_ephemeral={}",
             stats.events_seen,
             stats.captures_seen,
             stats.committed,
             stats.facts_inserted,
             stats.forgets,
             stats.updates,
+            stats.facts_skipped_ephemeral,
         );
     }
     Ok(())
@@ -290,6 +430,7 @@ mod tests {
     fn capture(text: &str) -> Event {
         Event::new(
             EventKind::Capture(CapturePayload {
+                time: None,
                 text: text.into(),
                 rewritten_text: None,
                 kind: Default::default(),
@@ -405,6 +546,59 @@ mod tests {
         let hits = lex.search("functional rust", 5, None).unwrap();
         assert_eq!(hits.len(), 1);
         assert_eq!(hits[0].event_id, cap.id.to_string());
+    }
+
+    #[tokio::test]
+    async fn replay_skips_facts_derived_from_ephemeral_traces() {
+        let tmp = tempdir().unwrap();
+        force_no_embedder();
+        let log = EventLog::open(tmp.path()).unwrap();
+
+        // An ephemeral tool-use trace + a fact some past extractor derived from
+        // it (the historical noise: a file path became a "fact").
+        let mut tags = std::collections::BTreeMap::new();
+        tags.insert("retention".to_string(), "ephemeral:7d".to_string());
+        let trace = Event::new(
+            EventKind::Capture(CapturePayload {
+                text: "[Bash] cd /Users/vjsnapp/DATA_LAB/localmem".into(),
+                kind: crate::kind::Kind::Other("trace".into()),
+                tags,
+                ..Default::default()
+            }),
+            Source {
+                app: "claude-code".into(),
+                host: "h".into(),
+                user: None,
+            },
+        );
+        log.append(&trace).unwrap();
+        log.append(&fact_event("localmem", "/Users/vjsnapp/DATA_LAB", trace.id))
+            .unwrap();
+
+        // A real signal capture + its fact.
+        let sig = capture("I prefer functional Rust, even on weekends.");
+        log.append(&sig).unwrap();
+        log.append(&fact_event("user", "rust", sig.id)).unwrap();
+        drop(log);
+
+        let stats = replay_home(tmp.path()).await.unwrap();
+        restore_embedder_env();
+
+        assert_eq!(
+            stats.facts_skipped_ephemeral, 1,
+            "the trace-derived fact is dropped"
+        );
+        assert_eq!(
+            stats.facts_inserted, 1,
+            "only the signal fact is materialized"
+        );
+
+        let facts = FactsStore::open(tmp.path()).unwrap();
+        assert_eq!(facts.facts_for_subject("user").unwrap().len(), 1);
+        assert!(
+            facts.facts_for_subject("localmem").unwrap().is_empty(),
+            "no trace-derived file-path noise in the facts store / graph / profile"
+        );
     }
 
     #[tokio::test]
@@ -546,7 +740,12 @@ mod tests {
                 supersedes_id: old_fact_id,
                 new_fact: FactPayload {
                     subject: "user".into(),
-                    predicate: "lives_in".into(),
+                    // Same (subject, predicate) as the superseded fact: real
+                    // Update events always share predicate with the fact they
+                    // supersede (resolve_contradiction only retires same-(S,P)
+                    // rows), and P1 valid-time resolution supersedes within an
+                    // (S,P). `fact_event` uses predicate "prefers".
+                    predicate: "prefers".into(),
                     object: "Berlin".into(),
                     confidence: 0.8,
                     valid_from: Utc::now(),

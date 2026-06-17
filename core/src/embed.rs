@@ -92,8 +92,23 @@ impl Embedder {
         // one-shot init and is what the underlying API would do anyway.
         let model_bytes = std::fs::read(&model_path)
             .with_context(|| format!("read ONNX model bytes from {}", model_path.display()))?;
-        let session = Session::builder()
-            .map_err(ort_err("create ort session builder"))?
+        let mut builder = Session::builder().map_err(ort_err("create ort session builder"))?;
+        // Cap ONNX intra-op threads when requested. Default (unset) lets ORT use
+        // all cores, which is ideal for a single real-time embedding. But when
+        // many embedders run concurrently (the benchmark spawns one core per
+        // question), all-cores-per-session oversubscribes the box: N cores x
+        // ~cores threads each thrashes. Set LOCALMEM_EMBED_INTRA_THREADS=1 so
+        // concurrency, not threads-per-call, controls parallelism.
+        if let Some(n) = std::env::var("LOCALMEM_EMBED_INTRA_THREADS")
+            .ok()
+            .and_then(|v| v.parse::<usize>().ok())
+            .filter(|n| *n >= 1)
+        {
+            builder = builder
+                .with_intra_threads(n)
+                .map_err(ort_err("set ort intra-op threads"))?;
+        }
+        let session = builder
             .commit_from_memory(&model_bytes)
             .map_err(ort_err(&format!(
                 "load ONNX model from {}",

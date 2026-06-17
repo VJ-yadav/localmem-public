@@ -42,11 +42,7 @@ impl Extractor for HostedExtractor {
         NAME
     }
 
-    async fn extract(
-        &self,
-        _text: &str,
-        _kind_hint: Option<&Kind>,
-    ) -> Result<Vec<ExtractedFact>> {
+    async fn extract(&self, _text: &str, _kind_hint: Option<&Kind>) -> Result<Vec<ExtractedFact>> {
         let endpoint_hint = if self.endpoint.is_empty() {
             "(none configured)".to_string()
         } else {

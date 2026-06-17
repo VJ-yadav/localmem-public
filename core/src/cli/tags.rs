@@ -97,15 +97,17 @@ fn collect_forgotten_capture_ids(log: &EventLog) -> Result<HashSet<EventId>> {
 
 fn write_output<W: Write>(out: &mut W, rows: &[TagRow], as_json: bool) -> Result<()> {
     if as_json {
-        let payload = JsonOutput { ok: true, tags: rows };
+        let payload = JsonOutput {
+            ok: true,
+            tags: rows,
+        };
         serde_json::to_writer(&mut *out, &payload).context("serialize tags JSON")?;
         out.write_all(b"\n").context("write JSON newline")?;
     } else if rows.is_empty() {
         writeln!(out, "no tags yet").context("write empty tags line")?;
     } else {
         for row in rows {
-            writeln!(out, "{}\t{}={}", row.count, row.key, row.value)
-                .context("write tags row")?;
+            writeln!(out, "{}\t{}={}", row.count, row.key, row.value).context("write tags row")?;
         }
     }
     Ok(())
@@ -134,6 +136,7 @@ mod tests {
         }
         Event::new(
             EventKind::Capture(CapturePayload {
+                time: None,
                 text: text.into(),
                 rewritten_text: None,
                 kind: Default::default(),
@@ -197,7 +200,10 @@ mod tests {
         );
         log.append(&forget).unwrap();
         let rows = aggregate_tags(&log).unwrap();
-        assert!(rows.is_empty(), "forgotten capture must drop from tag totals");
+        assert!(
+            rows.is_empty(),
+            "forgotten capture must drop from tag totals"
+        );
     }
 
     #[test]

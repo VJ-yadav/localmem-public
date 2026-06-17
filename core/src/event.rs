@@ -88,6 +88,13 @@ pub enum EventKind {
     Policy(PolicyPayload),
     /// Bulk ingest from another system.
     Import(ImportPayload),
+    /// Layer 2 understanding (SPEC-unified-memory-layer 7c): the LLM's
+    /// decomposition of a capture into a summary + intent + typed entities,
+    /// derived asynchronously OFF the write path. Append-only and immutable
+    /// like every event: re-running a better model emits a NEW understanding
+    /// event rather than mutating this one. Facts extracted in the same pass
+    /// are emitted separately as `Fact`/`Update` events.
+    Understanding(UnderstandingPayload),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
@@ -147,6 +154,14 @@ pub struct CapturePayload {
     /// priority over `extra` so the typed field is restored.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub tags: BTreeMap<String, String>,
+    /// Temporal envelope (P1, SPEC-temporal-foundation). Timezone-correct,
+    /// precision-aware time. Native captures fill it fully; imports fill what
+    /// the source provides. Absent on legacy v0.1/v0.2 captures and on native
+    /// captures written before this shipped; the read path falls back to the
+    /// event envelope `ts`. `skip_serializing_if` keeps the wire shape
+    /// byte-identical when absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub time: Option<crate::temporal::TimeEnvelope>,
     /// Forward-compat: round-trips unknown fields.
     #[serde(flatten, default, skip_serializing_if = "Map::is_empty")]
     pub extra: Map<String, Value>,
@@ -160,6 +175,34 @@ impl CapturePayload {
     /// "what the user actually sees."
     pub fn indexable_text(&self) -> &str {
         self.rewritten_text.as_deref().unwrap_or(&self.text)
+    }
+
+    /// The capture's effective UTC instant: the temporal envelope's instant
+    /// when present (timezone-correct and recomputable), else `fallback` (the
+    /// event-shell `ts`). Derived facts source their `valid_from` from this so
+    /// the envelope, not the raw write-time `ts`, is the canonical time. For a
+    /// native capture the two coincide; for an import the envelope carries the
+    /// original instant while `ts` would be import time.
+    pub fn effective_capture_instant(&self, fallback: DateTime<Utc>) -> DateTime<Utc> {
+        self.time
+            .as_ref()
+            .map(|t| t.effective_instant())
+            .unwrap_or(fallback)
+    }
+
+    /// Whether this capture is short-lived working memory (a tool-use trace),
+    /// recognized either by an `ephemeral:*` retention tag (the hooks' semantic
+    /// "short-lived" marker) or the `trace` sub-kind. Ephemeral captures stay
+    /// first-class in the event log for audit/replay, but they must NOT seed the
+    /// durable intelligence layer: the understanding worker skips decomposing
+    /// them, and `replay` skips re-materializing any facts derived from them, so
+    /// command/file-path noise never reaches the facts store, graph, or profile.
+    /// One source of truth for both code paths.
+    pub fn is_ephemeral(&self) -> bool {
+        self.tags
+            .get(crate::reserved_tags::KEY_RETENTION)
+            .is_some_and(|r| r.starts_with(crate::reserved_tags::RETENTION_EPHEMERAL_PREFIX))
+            || self.kind.as_str() == "trace"
     }
 }
 
@@ -263,6 +306,52 @@ pub struct ImportPayload {
     pub extra: Map<String, Value>,
 }
 
+/// A typed entity surfaced by the understanding pass. `kind` is an OPEN label
+/// (person, project, tool, org, concept, ...): the set is meant to grow, so it
+/// is never a closed enum. Defined here (not reused from the `understanding`
+/// module) so the event schema stays self-contained on the wire.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct UnderstoodEntity {
+    pub name: String,
+    pub kind: String,
+}
+
+/// Payload for [`EventKind::Understanding`]: the derived meaning of one capture.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct UnderstandingPayload {
+    /// The capture this understanding was derived from.
+    pub source_id: EventId,
+    /// One or two sentences capturing the gist. May be empty.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub summary: String,
+    /// What the user was trying to do (imperative phrase). May be empty.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub intent: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub entities: Vec<UnderstoodEntity>,
+    /// Concrete anchors the capture mentions (file paths, IDs, URLs), so memory
+    /// "knows where things live" without re-reading the raw text.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub references: Vec<String>,
+    /// Open salience label (`decision`, `rule`, `preference`, `question`,
+    /// `note`, ...) so retrieval/briefing can rank signal over chatter. Absent
+    /// on the wire when it's the default `note`.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub salience: String,
+    /// The model that produced this understanding (provenance + recomputability:
+    /// a future better model emits a newer understanding event).
+    pub model: String,
+    /// Valid-time inherited from the source capture's temporal envelope, so the
+    /// understanding sorts on the same instant as the capture and its facts.
+    pub valid_from: DateTime<Utc>,
+    /// Container tags inherited from the source capture, so understandings can
+    /// be scoped to a project without joining back to the capture.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub tags: BTreeMap<String, String>,
+    #[serde(flatten, default, skip_serializing_if = "Map::is_empty")]
+    pub extra: Map<String, Value>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -292,6 +381,7 @@ mod tests {
             id: fixed_id(),
             ts: fixed_ts(),
             kind: EventKind::Capture(CapturePayload {
+                time: None,
                 text: "I prefer functional Rust.".into(),
                 rewritten_text: None,
                 mime: Some("text/plain".into()),
@@ -441,12 +531,68 @@ mod tests {
     }
 
     #[test]
+    fn understanding_event_roundtrips_and_omits_empty_optionals() {
+        let ev = Event {
+            id: fixed_id(),
+            ts: fixed_ts(),
+            kind: EventKind::Understanding(UnderstandingPayload {
+                source_id: fixed_id(),
+                summary: "Vijay picked LanceDB for localmem's vectors.".into(),
+                intent: "record a decision".into(),
+                entities: vec![UnderstoodEntity {
+                    name: "LanceDB".into(),
+                    kind: "tool".into(),
+                }],
+                references: vec!["core/src/vectors.rs".into()],
+                salience: "decision".into(),
+                model: "llama3.2:latest".into(),
+                valid_from: fixed_ts(),
+                tags: Default::default(),
+                extra: Map::new(),
+            }),
+            source: fixed_source(),
+            version: 1,
+        };
+        let json = serde_json::to_value(&ev).unwrap();
+        assert_eq!(json["kind"], "understanding");
+        // Empty tags must not appear on the wire (byte-compat discipline).
+        assert!(json["payload"].get("tags").is_none());
+        let parsed: Event = serde_json::from_str(&serde_json::to_string(&ev).unwrap()).unwrap();
+        assert_eq!(ev, parsed);
+
+        // A minimal understanding (no summary/intent/entities) round-trips with
+        // those fields absent on the wire.
+        let minimal = Event::new(
+            EventKind::Understanding(UnderstandingPayload {
+                source_id: fixed_id(),
+                summary: String::new(),
+                intent: String::new(),
+                entities: vec![],
+                references: vec![],
+                salience: String::new(),
+                model: "llama3.2:latest".into(),
+                valid_from: fixed_ts(),
+                tags: Default::default(),
+                extra: Map::new(),
+            }),
+            fixed_source(),
+        );
+        let mjson = serde_json::to_value(&minimal).unwrap();
+        assert!(mjson["payload"].get("summary").is_none());
+        assert!(mjson["payload"].get("entities").is_none());
+        let mparsed: Event =
+            serde_json::from_str(&serde_json::to_string(&minimal).unwrap()).unwrap();
+        assert_eq!(minimal, mparsed);
+    }
+
+    #[test]
     fn capture_kind_roundtrips_and_omits_when_note() {
         // Default (Kind::Note) must NOT appear on the wire so v0.1
         // fixtures round-trip byte-identically. Non-Note kinds do
         // appear.
         let default_kind = Event::new(
             EventKind::Capture(CapturePayload {
+                time: None,
                 text: "hi".into(),
                 kind: crate::kind::Kind::Note,
                 rewritten_text: None,
@@ -474,6 +620,7 @@ mod tests {
         ] {
             let ev = Event::new(
                 EventKind::Capture(CapturePayload {
+                    time: None,
                     text: "hi".into(),
                     kind: variant.clone(),
                     rewritten_text: None,
@@ -503,6 +650,7 @@ mod tests {
         // fixtures stay byte-identical.
         let none_rewrite = Event::new(
             EventKind::Capture(CapturePayload {
+                time: None,
                 text: "I prefer Rust.".into(),
                 rewritten_text: None,
                 mime: None,
@@ -522,6 +670,7 @@ mod tests {
         // Populated rewrite must round-trip through serde unchanged.
         let with_rewrite = Event::new(
             EventKind::Capture(CapturePayload {
+                time: None,
                 text: "I prefer Rust.".into(),
                 rewritten_text: Some("Vijay prefer Rust.".into()),
                 mime: None,
@@ -585,6 +734,7 @@ mod tests {
         // expects exactly the v0.1 shape when no tags are set).
         let untagged = Event::new(
             EventKind::Capture(CapturePayload {
+                time: None,
                 text: "hi".into(),
                 rewritten_text: None,
                 mime: None,
@@ -609,6 +759,7 @@ mod tests {
         tags.insert("topic".into(), "retrieval".into());
         let tagged = Event::new(
             EventKind::Capture(CapturePayload {
+                time: None,
                 text: "hi".into(),
                 rewritten_text: None,
                 mime: None,
@@ -787,6 +938,7 @@ mod tests {
         // produce output that has no internal newlines.
         let ev = Event::new(
             EventKind::Capture(CapturePayload {
+                time: None,
                 text: "multi\nline\ntext".into(),
                 rewritten_text: None,
                 mime: None,

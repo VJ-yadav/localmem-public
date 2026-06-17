@@ -9,7 +9,7 @@
 use crate::facts::{Fact, FactsStore};
 use anyhow::{Context, Result};
 use chrono::{DateTime, SecondsFormat, Utc};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
@@ -19,10 +19,11 @@ pub struct RecallOutput {
     pub facts: Vec<RecallFact>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct RecallFact {
     pub predicate: String,
     pub object: String,
+    #[serde(default)]
     pub confidence: f64,
     pub valid_from: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -69,6 +70,29 @@ pub fn run(
     as_json: bool,
 ) -> Result<()> {
     let home = resolve_home(home)?;
+
+    // Route through the running server when up (the facts DuckDB lock is
+    // exclusive); fall back to an in-process read otherwise.
+    {
+        let mut body = serde_json::json!({ "entity": entity, "tags": tags });
+        if let Some(t) = at_time {
+            body["at_time"] = serde_json::Value::String(t.to_rfc3339());
+        }
+        if let Some(v) = crate::cli::server_post(&home, "/recall", body) {
+            let facts: Vec<RecallFact> = v
+                .get("facts")
+                .and_then(|f| serde_json::from_value(f.clone()).ok())
+                .unwrap_or_default();
+            return emit(
+                &RecallOutput {
+                    entity: entity.to_string(),
+                    facts,
+                },
+                as_json,
+            );
+        }
+    }
+
     let store = FactsStore::open(&home).context("open facts store")?;
     let tag_filter = if tags.is_empty() { None } else { Some(&tags) };
     let visibility = crate::reserved_tags::Visibility::IncludePrivate;

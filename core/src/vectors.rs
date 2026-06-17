@@ -20,7 +20,7 @@
 use anyhow::{anyhow, Context, Result};
 use arrow_array::types::Float32Type;
 use arrow_array::{
-    FixedSizeListArray, RecordBatch, RecordBatchIterator, RecordBatchReader, StringArray,
+    Array, FixedSizeListArray, RecordBatch, RecordBatchIterator, RecordBatchReader, StringArray,
     TimestampMillisecondArray,
 };
 use arrow_schema::{DataType, Field, Schema, TimeUnit};
@@ -46,6 +46,11 @@ pub mod fields {
     pub const VECTOR: &str = "vector";
     pub const CONTENT: &str = "content";
     pub const TS: &str = "ts";
+    /// SPEC §2.8: the capture's container tags, JSON-encoded, stored ON the
+    /// vector row so the vec retrieval path filters by its OWN data (scope,
+    /// tag-subset, reserved) instead of borrowing from a lexical lookup that can
+    /// diverge. This is the cohesion fix: every retrieval store self-describes.
+    pub const TAGS: &str = "tags";
     /// Column LanceDB injects on `nearest_to` queries containing the L2
     /// distance from the query vector. Lower = closer.
     pub const DISTANCE: &str = "_distance";
@@ -57,6 +62,9 @@ pub struct VectorHit {
     pub event_id: String,
     pub content: String,
     pub ts: DateTime<Utc>,
+    /// The capture's container tags, decoded from the row's `tags` column.
+    #[serde(default)]
+    pub tags: std::collections::BTreeMap<String, String>,
     /// Cosine-similarity-like score in `[0, 1]`. Converted from LanceDB's
     /// L2 distance using `1 / (1 + distance)` so callers can blend it with
     /// BM25 (which is unbounded but order-preserving the same way).
@@ -147,6 +155,41 @@ impl VectorStore {
         Ok(n)
     }
 
+    /// Every `event_id` currently present in the table. T-119 uses this on
+    /// startup to find captures whose vector never landed (async embedding
+    /// interrupted by a crash/eviction) so they can be re-embedded from
+    /// events.jsonl. Projects to the id column only so the scan stays cheap on
+    /// a large corpus (no vector payload pulled).
+    pub async fn existing_ids(&self) -> Result<std::collections::HashSet<String>> {
+        use lancedb::query::Select;
+        let stream = self
+            .table
+            .query()
+            .select(Select::columns(&[fields::EVENT_ID]))
+            .execute()
+            .await
+            .context("scan vectors.lance for existing ids")?;
+        let batches: Vec<RecordBatch> = stream
+            .try_collect()
+            .await
+            .context("collect id batches from vectors.lance")?;
+        let mut ids = std::collections::HashSet::new();
+        for batch in &batches {
+            let col = batch
+                .column_by_name(fields::EVENT_ID)
+                .ok_or_else(|| anyhow!("id scan batch missing `event_id`"))?
+                .as_any()
+                .downcast_ref::<StringArray>()
+                .ok_or_else(|| anyhow!("`event_id` column is not Utf8"))?;
+            // `event_id` is a non-nullable column (see vector_schema), so every
+            // row has a value.
+            for i in 0..batch.num_rows() {
+                ids.insert(col.value(i).to_string());
+            }
+        }
+        Ok(ids)
+    }
+
     /// Append one vector row. Idempotency is the caller's responsibility:
     /// LanceDB happily stores duplicates. Replay (T-25) walks the event log
     /// from scratch so duplicates would only matter on a partial rebuild.
@@ -155,6 +198,7 @@ impl VectorStore {
         event_id: &str,
         vector: &[f32],
         content: &str,
+        tags_json: &str,
         ts: DateTime<Utc>,
     ) -> Result<()> {
         if vector.len() != self.dim {
@@ -164,7 +208,7 @@ impl VectorStore {
                 self.dim
             ));
         }
-        let batch = build_batch(self.dim, &[(event_id, vector, content, ts)])?;
+        let batch = build_batch(self.dim, &[(event_id, vector, content, tags_json, ts)])?;
         let schema = batch.schema();
         let iter = RecordBatchIterator::new(vec![Ok(batch)].into_iter(), schema);
         // `Table::add` requires `Scannable`, which is only implemented for
@@ -176,6 +220,34 @@ impl VectorStore {
             .execute()
             .await
             .context("append row to vectors.lance")?;
+        Ok(())
+    }
+
+    /// Append many vector rows in a single LanceDB write. Used by the async
+    /// embedding worker (T-117) so a batch embedded in one ONNX pass is also
+    /// persisted in one round-trip. Same idempotency contract as [`Self::add`].
+    pub async fn add_many(&self, rows: &[(&str, &[f32], &str, &str, DateTime<Utc>)]) -> Result<()> {
+        if rows.is_empty() {
+            return Ok(());
+        }
+        for (event_id, vector, _, _, _) in rows {
+            if vector.len() != self.dim {
+                return Err(anyhow!(
+                    "vector length {} for {event_id} does not match store dim {}",
+                    vector.len(),
+                    self.dim
+                ));
+            }
+        }
+        let batch = build_batch(self.dim, rows)?;
+        let schema = batch.schema();
+        let iter = RecordBatchIterator::new(vec![Ok(batch)].into_iter(), schema);
+        let reader: Box<dyn RecordBatchReader + Send> = Box::new(iter);
+        self.table
+            .add(reader)
+            .execute()
+            .await
+            .context("append rows to vectors.lance")?;
         Ok(())
     }
 
@@ -229,6 +301,8 @@ fn vector_schema(dim: usize) -> Schema {
             false,
         ),
         Field::new(fields::CONTENT, DataType::Utf8, false),
+        // Nullable: a capture may have no tags (the empty map encodes as "{}").
+        Field::new(fields::TAGS, DataType::Utf8, true),
         Field::new(
             fields::TS,
             DataType::Timestamp(TimeUnit::Millisecond, Some(Arc::from("UTC"))),
@@ -264,9 +338,13 @@ async fn create_empty_table(conn: &Connection, dim: usize) -> Result<Table> {
     Ok(table)
 }
 
-fn build_batch(dim: usize, rows: &[(&str, &[f32], &str, DateTime<Utc>)]) -> Result<RecordBatch> {
+fn build_batch(
+    dim: usize,
+    rows: &[(&str, &[f32], &str, &str, DateTime<Utc>)],
+) -> Result<RecordBatch> {
     let event_ids = StringArray::from(rows.iter().map(|r| r.0).collect::<Vec<_>>());
     let contents = StringArray::from(rows.iter().map(|r| r.2).collect::<Vec<_>>());
+    let tags = StringArray::from(rows.iter().map(|r| r.3).collect::<Vec<_>>());
 
     // FixedSizeListArray builder: a flat Float32Array sliced into `dim`-wide
     // chunks. Each input row must already have exactly `dim` values.
@@ -283,7 +361,7 @@ fn build_batch(dim: usize, rows: &[(&str, &[f32], &str, DateTime<Utc>)]) -> Resu
     debug_assert_eq!(vectors.value_length(), dim as i32);
     debug_assert_eq!(flat.len(), rows.len() * dim);
 
-    let timestamps_ms: Vec<i64> = rows.iter().map(|r| r.3.timestamp_millis()).collect();
+    let timestamps_ms: Vec<i64> = rows.iter().map(|r| r.4.timestamp_millis()).collect();
     let timestamps = TimestampMillisecondArray::from(timestamps_ms).with_timezone("UTC");
 
     let schema = Arc::new(vector_schema(dim));
@@ -293,6 +371,7 @@ fn build_batch(dim: usize, rows: &[(&str, &[f32], &str, DateTime<Utc>)]) -> Resu
             Arc::new(event_ids),
             Arc::new(vectors),
             Arc::new(contents),
+            Arc::new(tags),
             Arc::new(timestamps),
         ],
     )
@@ -324,6 +403,11 @@ fn decode_batch(batch: &RecordBatch, out: &mut Vec<VectorHit>) -> Result<()> {
         .as_any()
         .downcast_ref::<arrow_array::Float32Array>()
         .ok_or_else(|| anyhow!("`_distance` column is not Float32"))?;
+    // `tags` is absent on tables written before the §2.8 schema; treat a missing
+    // column as no tags so an un-reindexed store still reads (then reindex).
+    let tags_col = batch
+        .column_by_name(fields::TAGS)
+        .and_then(|c| c.as_any().downcast_ref::<StringArray>());
 
     for i in 0..batch.num_rows() {
         let ms = timestamps.value(i);
@@ -332,10 +416,15 @@ fn decode_batch(batch: &RecordBatch, out: &mut Vec<VectorHit>) -> Result<()> {
             .single()
             .ok_or_else(|| anyhow!("invalid timestamp ms={ms}"))?;
         let distance = distances.value(i);
+        let tags = match tags_col {
+            Some(arr) if !arr.is_null(i) => serde_json::from_str(arr.value(i)).unwrap_or_default(),
+            _ => std::collections::BTreeMap::new(),
+        };
         out.push(VectorHit {
             event_id: event_ids.value(i).to_string(),
             content: contents.value(i).to_string(),
             ts,
+            tags,
             score: 1.0 / (1.0 + distance),
         });
     }
@@ -367,11 +456,23 @@ mod tests {
         let tmp = tempdir().unwrap();
         let store = VectorStore::open(tmp.path(), DIM).await.unwrap();
         store
-            .add("01HX1", &vec_of([1.0, 0.0, 0.0, 0.0]), "alpha", Utc::now())
+            .add(
+                "01HX1",
+                &vec_of([1.0, 0.0, 0.0, 0.0]),
+                "alpha",
+                "{}",
+                Utc::now(),
+            )
             .await
             .unwrap();
         store
-            .add("01HX2", &vec_of([0.0, 1.0, 0.0, 0.0]), "beta", Utc::now())
+            .add(
+                "01HX2",
+                &vec_of([0.0, 1.0, 0.0, 0.0]),
+                "beta",
+                "{}",
+                Utc::now(),
+            )
             .await
             .unwrap();
         assert_eq!(store.count().await.unwrap(), 2);
@@ -387,12 +488,19 @@ mod tests {
                 "near",
                 &vec_of([1.0, 0.0, 0.0, 0.0]),
                 "near hit",
+                "{}",
                 Utc::now(),
             )
             .await
             .unwrap();
         store
-            .add("far", &vec_of([0.0, 0.0, 1.0, 0.0]), "far hit", Utc::now())
+            .add(
+                "far",
+                &vec_of([0.0, 0.0, 1.0, 0.0]),
+                "far hit",
+                "{}",
+                Utc::now(),
+            )
             .await
             .unwrap();
 
@@ -412,7 +520,7 @@ mod tests {
         for i in 0..5 {
             let v = vec_of([i as f32, 0.0, 0.0, 0.0]);
             store
-                .add(&format!("ev{i}"), &v, &format!("c{i}"), Utc::now())
+                .add(&format!("ev{i}"), &v, &format!("c{i}"), "{}", Utc::now())
                 .await
                 .unwrap();
         }
@@ -428,7 +536,7 @@ mod tests {
         let tmp = tempdir().unwrap();
         let store = VectorStore::open(tmp.path(), DIM).await.unwrap();
         store
-            .add("a", &vec_of([1.0, 0.0, 0.0, 0.0]), "a", Utc::now())
+            .add("a", &vec_of([1.0, 0.0, 0.0, 0.0]), "a", "{}", Utc::now())
             .await
             .unwrap();
         let hits = store
@@ -443,7 +551,7 @@ mod tests {
         let tmp = tempdir().unwrap();
         let store = VectorStore::open(tmp.path(), DIM).await.unwrap();
         let err = store
-            .add("bad", &[1.0, 2.0, 3.0], "wrong dim", Utc::now())
+            .add("bad", &[1.0, 2.0, 3.0], "wrong dim", "{}", Utc::now())
             .await
             .unwrap_err();
         let msg = format!("{err:#}");
@@ -469,6 +577,7 @@ mod tests {
                     "persist",
                     &vec_of([0.5, 0.5, 0.0, 0.0]),
                     "persist",
+                    "{}",
                     Utc::now(),
                 )
                 .await
@@ -506,7 +615,7 @@ mod tests {
         let target_id = "target";
         let target = vec_of([0.42, 0.13, 0.71, 0.05]);
         store
-            .add(target_id, &target, "the needle", Utc::now())
+            .add(target_id, &target, "the needle", "{}", Utc::now())
             .await
             .unwrap();
         for i in 0..999 {
@@ -519,7 +628,7 @@ mod tests {
                 ((i as f32 * 29.0) % 17.0) - 5.0,
             ]);
             store
-                .add(&format!("h{i}"), &v, &format!("hay {i}"), Utc::now())
+                .add(&format!("h{i}"), &v, &format!("hay {i}"), "{}", Utc::now())
                 .await
                 .unwrap();
         }

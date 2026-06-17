@@ -196,7 +196,9 @@ fn link_embedder_from(global_home: Option<&Path>, home: &Path) -> Result<()> {
     }
 
     let new_home_canon = home.canonicalize().unwrap_or_else(|_| home.to_path_buf());
-    let global_home_canon = global_home.canonicalize().unwrap_or_else(|_| global_home.to_path_buf());
+    let global_home_canon = global_home
+        .canonicalize()
+        .unwrap_or_else(|_| global_home.to_path_buf());
     if new_home_canon == global_home_canon {
         // We ARE the global home; nothing to symlink to ourselves.
         return Ok(());
@@ -463,8 +465,9 @@ mod tests {
         // The seeded file is still the seeded file; the dir was never
         // turned into a self-pointing symlink.
         assert!(seeded.exists());
-        let meta = std::fs::symlink_metadata(global_and_local.join("models").join(DEFAULT_EMBEDDER_SLUG))
-            .unwrap();
+        let meta =
+            std::fs::symlink_metadata(global_and_local.join("models").join(DEFAULT_EMBEDDER_SLUG))
+                .unwrap();
         assert!(
             !meta.file_type().is_symlink(),
             "must not symlink the global model dir to itself"

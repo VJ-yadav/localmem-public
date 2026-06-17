@@ -13,6 +13,11 @@ export const WriteInput = z.object({
   content: z.string().min(1),
   source: z.string().optional(),
   kind: z.string().optional(),
+  // RFC3339 instant the memory actually occurred. Lets an agent import a
+  // user's history (past chats, exported logs) at its real valid-time instead
+  // of capture-now, which is what makes temporal recall correct. Forwarded to
+  // the core /write; the core validates the format.
+  as_of: z.string().optional(),
 });
 export type WriteInput = z.infer<typeof WriteInput>;
 
@@ -20,17 +25,32 @@ export const SearchInput = z.object({
   query: z.string().min(1),
   k: z.number().int().positive().max(100).optional(),
   at_time: z.string().optional(),
+  // Project scope (trust boundary, SPEC §2.8). By default the search is scoped
+  // to the current project (the MCP server's working directory) plus global
+  // user-common memory, so a query never pulls another project's content.
+  // `all_projects=true` searches everything; `project="<label>"` scopes to a
+  // named project instead of the cwd. The two are mutually exclusive;
+  // all_projects wins if both are set.
+  all_projects: z.boolean().optional(),
+  project: z.string().optional(),
 });
 export type SearchInput = z.infer<typeof SearchInput>;
 
 export const RecallInput = z.object({
   entity: z.string().min(1),
   at_time: z.string().optional(),
+  // Like memory_search: scoped to the current project + global by default;
+  // all_projects=true pulls facts about the entity from every project.
+  all_projects: z.boolean().optional(),
 });
 export type RecallInput = z.infer<typeof RecallInput>;
 
 export const ProfileInput = z.object({
+  // Subject filter (one entity). NOT the project scope.
   scope: z.string().optional(),
+  // Scoped to the current project + global by default; all_projects=true
+  // synthesizes across every project.
+  all_projects: z.boolean().optional(),
 });
 export type ProfileInput = z.infer<typeof ProfileInput>;
 
@@ -66,6 +86,13 @@ const SearchResult = z.object({
 const SearchResponse = z.object({
   ok: z.literal(true),
   results: z.array(SearchResult),
+  // North Star (§2.9): the REAL token cost of the returned context, so the agent
+  // sees "this recall = N tokens" instead of dumping its whole history. cost_usd
+  // is present when the accounting model is priced.
+  tokens: z.number().int().nonnegative().optional(),
+  token_model: z.string().optional(),
+  tokens_exact: z.boolean().optional(),
+  cost_usd: z.number().nonnegative().optional(),
 });
 export type SearchResponse = z.infer<typeof SearchResponse>;
 
@@ -138,6 +165,35 @@ export const ResourceTagsResponse = z.object({
   ),
 });
 export type ResourceTagsResponse = z.infer<typeof ResourceTagsResponse>;
+
+// P8 (§8): the shared onboarding snapshot, surfaced in-IDE so a user knows they
+// are set up and what to do next (dashboard URL, import, next steps).
+export const ResourceGettingStartedResponse = z.object({
+  ok: z.literal(true),
+  dashboard_url: z.string(),
+  ready: z.boolean(),
+  checks: z.array(
+    z.object({
+      key: z.string(),
+      label: z.string(),
+      ok: z.boolean(),
+      required: z.boolean(),
+      detail: z.string(),
+      fix: z.string().optional(),
+    }),
+  ),
+  clients: z.array(
+    z.object({
+      slug: z.string(),
+      label: z.string(),
+      wired: z.boolean(),
+      command: z.string(),
+    }),
+  ),
+  import_candidates: z.number().int().nonnegative(),
+  markdown: z.string(),
+});
+export type ResourceGettingStartedResponse = z.infer<typeof ResourceGettingStartedResponse>;
 
 export const ResourceRecentResponse = z.object({
   ok: z.literal(true),

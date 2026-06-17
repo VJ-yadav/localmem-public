@@ -7,11 +7,11 @@
 
 use crate::facts::FactsStore;
 use anyhow::{Context, Result};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::io::{self, Write};
 use std::path::PathBuf;
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct SubjectRow {
     subject: String,
     count: u64,
@@ -25,6 +25,18 @@ struct JsonOutput<'a> {
 
 pub fn run(home: Option<&str>, as_json: bool) -> Result<()> {
     let home = resolve_home(home)?;
+
+    // Route through the running server when up (the facts DuckDB lock is
+    // exclusive); fall back to an in-process read otherwise.
+    if let Some(v) = crate::cli::server_get(&home, "/resource/subjects") {
+        let rows: Vec<SubjectRow> = v
+            .get("subjects")
+            .and_then(|s| serde_json::from_value(s.clone()).ok())
+            .unwrap_or_default();
+        let mut out = io::stdout().lock();
+        return write_output(&mut out, &rows, as_json);
+    }
+
     let store = FactsStore::open(&home).context("open facts store")?;
     let rows = store.subjects().context("list subjects")?;
     let rows: Vec<SubjectRow> = rows
@@ -47,8 +59,7 @@ fn write_output<W: Write>(out: &mut W, rows: &[SubjectRow], as_json: bool) -> Re
         writeln!(out, "no subjects yet").context("write empty subjects line")?;
     } else {
         for row in rows {
-            writeln!(out, "{}\t{}", row.count, row.subject)
-                .context("write subjects row")?;
+            writeln!(out, "{}\t{}", row.count, row.subject).context("write subjects row")?;
         }
     }
     Ok(())

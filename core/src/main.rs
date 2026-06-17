@@ -7,10 +7,11 @@ use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
 use clap::{Parser, Subcommand};
 use localmem::cli::{
-    audit, doctor, export, fetch_model, forget, import_wizard, init, journal, mcp, profile, recall,
-    recent, reindex, replay,
+    audit, brief, doctor, export, fetch_model, forget, hooks, import_wizard, init, journal, mcp,
+    profile, recall, recent, reindex, replay,
     search::{self, Mode as SearchMode},
-    subjects, summarize, tag_arg, tags as tags_cmd, todo, write,
+    service, setup, status, subjects, summarize, tag_arg, tags as tags_cmd, todo, understand,
+    write,
 };
 use localmem::server;
 use std::net::SocketAddr;
@@ -68,6 +69,14 @@ enum Command {
         #[arg(long)]
         kind: Option<String>,
 
+        /// Valid-time of the memory (RFC3339), i.e. WHEN it happened, not
+        /// when you are recording it. Sets the capture's temporal envelope
+        /// so bitemporal recall and `search --at-time` resolve it to the
+        /// real instant. Omit to stamp now. Example:
+        /// `--as-of 2023-01-15T10:00:00Z`.
+        #[arg(long, value_name = "RFC3339")]
+        as_of: Option<String>,
+
         /// Emit a single JSON object on stdout instead of a human-readable line.
         #[arg(long)]
         json: bool,
@@ -107,6 +116,13 @@ enum Command {
         /// Example: `--tags project=localmem,topic=async`.
         #[arg(long, value_name = "K=V[,K=V...]")]
         tags: Option<String>,
+
+        /// Project scope (SPEC §2.8). Restrict to this project plus
+        /// user-common (global) memory, never another project. This is
+        /// the isolation default an agent should use; cross-project
+        /// search is omitting it. Example: `--project localmem`.
+        #[arg(long)]
+        project: Option<String>,
 
         /// Kind filter (T-52b). Restrict to one of the closed-core
         /// kinds (`fact`, `preference`, `decision`, `constraint`,
@@ -215,6 +231,11 @@ enum Command {
     Reindex {
         #[arg(long)]
         json: bool,
+        /// Stop after N signal-capture vectors: a fast smoke test that
+        /// embedding + writing work on this machine (and the auto-tuned batch
+        /// sizes are sane) before a full rebuild. Omit to reindex everything.
+        #[arg(long)]
+        sample: Option<u64>,
     },
 
     /// Run the local HTTP server (for the MCP server to talk to).
@@ -223,15 +244,96 @@ enum Command {
     Serve {
         #[arg(long)]
         addr: Option<String>,
+        /// Also serve the local web dashboard at the same address (no separate
+        /// dashboard/serve.py needed). Open http://<addr>/ in a browser.
+        #[arg(long)]
+        dashboard: bool,
     },
 
-    /// Import from a memory archive (v0.1 supports `archive` format only)
+    /// One-command onboarding: init the home, fetch the embedder model, wire
+    /// detected MCP clients, install the always-on service, and verify.
+    /// Best-effort per step.
+    Setup {
+        /// Skip downloading the embedder model (search stays lexical-only).
+        #[arg(long)]
+        no_model: bool,
+        /// Skip installing the always-on auto-launch service.
+        #[arg(long)]
+        no_service: bool,
+        #[arg(long)]
+        json: bool,
+    },
+
+    /// Concise health + memory summary (lighter than `doctor`).
+    Status {
+        #[arg(long)]
+        json: bool,
+    },
+
+    /// Internal: Claude Code hook handler (auto-capture). Reads the hook event
+    /// JSON on stdin. Wired into the agent by `localmem hooks install`; not
+    /// meant to be run by hand. Always exits 0 so it never disrupts the agent.
+    #[command(hide = true)]
+    Hook {
+        /// Event: `prompt-submit` | `post-tool` | `session-start` | `session-end`.
+        event: String,
+    },
+
+    /// Readiness + setup for the local-LLM understanding layer (summary +
+    /// entities + intent on top of raw captures). Detects Ollama, checks the
+    /// model, and explains cost/privacy. Never auto-installs anything.
+    /// With `--backfill`, instead enqueue captures that predate the worker so
+    /// existing memories get understood (routes to the running server).
+    Understand {
+        /// Understand captures that have no understanding yet (idempotent).
+        #[arg(long)]
+        backfill: bool,
+        /// Scope the backfill to a project tag.
+        #[arg(long)]
+        project: Option<String>,
+        /// Max captures to enqueue (most-recent first).
+        #[arg(long)]
+        limit: Option<usize>,
+        /// Rebuild the typed-graph NODE layer (entity_mentions) from existing
+        /// Understanding events. Offline + idempotent; no server or model needed.
+        #[arg(long)]
+        rebuild_graph: bool,
+    },
+
+    /// Register (or remove) the always-on auto-launch service so the core runs
+    /// at login: launchd on macOS, systemd --user on Linux.
+    Service {
+        /// `install` | `uninstall` | `status`.
+        action: String,
+    },
+
+    /// Render the Session Boot Briefing: a synthesized, current-state-first
+    /// digest of a project's memory (NOW / open loops / watch-outs / rules /
+    /// preferences / pointers). Routes to the running server; needs
+    /// understanding enabled.
+    Brief {
+        /// Scope to a project (matches the `project` tag). Omit for all projects.
+        #[arg(long)]
+        project: Option<String>,
+        #[arg(long)]
+        json: bool,
+    },
+
+    /// Import memories from an export. Format is auto-detected (ChatGPT or
+    /// Claude conversation export, or a localmem `archive`); override with
+    /// `--format`. Use `--dry-run` to preview what would be imported.
     Import {
-        /// Archive format: `archive` (localmem export). Reserved for v0.2:
-        /// `chatgpt`, `claude`, `mem0`.
-        format: String,
-        /// Path to the archive file.
+        /// Path to the export file, or a Claude Code transcript directory
+        /// (e.g. ~/.claude/projects).
         path: String,
+        /// Force a specific format instead of auto-detecting: `chatgpt`,
+        /// `claude` (claude.ai export), `claude-code` (session transcripts),
+        /// or `archive`.
+        #[arg(long)]
+        format: Option<String>,
+        /// Parse and report what would be imported, without writing anything.
+        #[arg(long)]
+        dry_run: bool,
 
         #[arg(long)]
         json: bool,
@@ -241,6 +343,13 @@ enum Command {
     Mcp {
         #[command(subcommand)]
         action: McpAction,
+    },
+
+    /// Wire localmem auto-capture hooks into an AI agent so it captures your
+    /// coding sessions automatically (and knows localmem is its memory).
+    Hooks {
+        #[command(subcommand)]
+        action: HooksAction,
     },
 
     /// List distinct entity subjects in the facts table with row counts (T-53).
@@ -424,6 +533,25 @@ enum McpAction {
     },
 }
 
+#[derive(Subcommand, Debug)]
+enum HooksAction {
+    /// Wire auto-capture hooks + the memory pointer into a client (claude-code).
+    Install {
+        #[arg(default_value = "claude-code")]
+        client: String,
+    },
+    /// Remove the localmem hooks + memory pointer from a client.
+    Uninstall {
+        #[arg(default_value = "claude-code")]
+        client: String,
+    },
+    /// Show whether the hooks + pointer are installed.
+    Status {
+        #[arg(default_value = "claude-code")]
+        client: String,
+    },
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     // Parse Cli BEFORE tracing init so we can honor --quiet and the
@@ -441,6 +569,7 @@ async fn main() -> Result<()> {
             source,
             tags,
             kind,
+            as_of,
             json,
         } => {
             let tags_map = tag_arg::parse_tags_arg(tags.as_deref()).context("parse --tags")?;
@@ -453,6 +582,7 @@ async fn main() -> Result<()> {
                 source.as_deref(),
                 tags_map,
                 kind_value,
+                as_of.as_deref(),
                 json,
             )
             .await?;
@@ -464,13 +594,14 @@ async fn main() -> Result<()> {
             mode,
             at_time,
             tags,
+            project,
             kind,
             done,
             json,
         } => {
-            let query = query.or(content).context(
-                "search requires a query (pass as positional or via --content)",
-            )?;
+            let query = query
+                .or(content)
+                .context("search requires a query (pass as positional or via --content)")?;
             let at_time = at_time.as_deref().map(parse_at_time).transpose()?;
             let tags_map = tag_arg::parse_tags_arg(tags.as_deref()).context("parse --tags")?;
             let kind_filter = kind.map(localmem::kind::Kind::from);
@@ -481,6 +612,7 @@ async fn main() -> Result<()> {
                 mode,
                 at_time,
                 tags_map,
+                project,
                 kind_filter,
                 done,
                 json,
@@ -524,8 +656,10 @@ async fn main() -> Result<()> {
             json,
         } => journal::run(cli.home.as_deref(), &since, action.as_deref(), json)?,
         Command::Replay { json } => replay::run(cli.home.as_deref(), json).await?,
-        Command::Reindex { json } => reindex::run(cli.home.as_deref(), json).await?,
-        Command::Serve { addr } => {
+        Command::Reindex { json, sample } => {
+            reindex::run(cli.home.as_deref(), json, sample).await?
+        }
+        Command::Serve { addr, dashboard } => {
             let home = resolve_home(cli.home.as_deref())?;
             let cfg = localmem::config::Config::load(&home).context("load config")?;
             let resolved = addr.unwrap_or_else(|| cfg.server.addr.clone());
@@ -535,11 +669,48 @@ async fn main() -> Result<()> {
             let state = server::AppState::open(&home)
                 .await
                 .context("open localmem home")?;
-            server::serve(parsed, state).await?;
+            if dashboard {
+                info!(addr = %parsed, "dashboard available at http://{parsed}/");
+            }
+            server::serve(parsed, state, dashboard).await?;
         }
-        Command::Import { format, path, json } => {
-            export::run_import(cli.home.as_deref(), &format, &path, json)?
+        Command::Setup {
+            no_model,
+            no_service,
+            json,
+        } => setup::run(cli.home.as_deref(), no_model, no_service, json)?,
+        Command::Status { json } => {
+            let core_addr = resolve_core_addr(cli.home.as_deref())?;
+            status::run(cli.home.as_deref(), &core_addr, json)?
         }
+        Command::Hook { event } => hooks::run(cli.home.as_deref(), &event)?,
+        Command::Understand {
+            backfill,
+            project,
+            limit,
+            rebuild_graph,
+        } => {
+            if rebuild_graph {
+                understand::run_rebuild_graph(cli.home.as_deref())?
+            } else if backfill {
+                understand::run_backfill(cli.home.as_deref(), project, limit).await?
+            } else {
+                understand::run_status(cli.home.as_deref())?
+            }
+        }
+        Command::Brief { project, json } => brief::run(cli.home.as_deref(), project, json).await?,
+        Command::Service { action } => service::run(&action, cli.home.as_deref())?,
+        Command::Hooks { action } => match action {
+            HooksAction::Install { client } => hooks::install(cli.home.as_deref(), &client)?,
+            HooksAction::Uninstall { client } => hooks::uninstall(cli.home.as_deref(), &client)?,
+            HooksAction::Status { client } => hooks::status(cli.home.as_deref(), &client)?,
+        },
+        Command::Import {
+            path,
+            format,
+            dry_run,
+            json,
+        } => export::run_import(cli.home.as_deref(), &path, format.as_deref(), dry_run, json)?,
         Command::Mcp { action } => {
             // Resolve the localmem core HTTP addr the same way `serve`
             // does so the MCP entry points at the user's actual core.

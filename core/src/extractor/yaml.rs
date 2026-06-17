@@ -120,7 +120,10 @@ impl YamlExtractor {
     pub fn from_str(bytes: &str, source: &Path) -> Result<Self> {
         let file: YamlExtractorFile = serde_yaml::from_str(bytes).context("deserialize YAML")?;
         if file.id.trim().is_empty() {
-            bail!("YAML extractor at {}: `id` must not be empty", source.display());
+            bail!(
+                "YAML extractor at {}: `id` must not be empty",
+                source.display()
+            );
         }
         if file.patterns.is_empty() {
             bail!(
@@ -211,11 +214,7 @@ impl Extractor for YamlExtractor {
         &self.name
     }
 
-    async fn extract(
-        &self,
-        text: &str,
-        _kind_hint: Option<&Kind>,
-    ) -> Result<Vec<ExtractedFact>> {
+    async fn extract(&self, text: &str, _kind_hint: Option<&Kind>) -> Result<Vec<ExtractedFact>> {
         Ok(self.apply(text).into_iter().collect())
     }
 }
@@ -234,8 +233,7 @@ pub fn load_dir(dir: &Path) -> Result<Vec<YamlExtractor>> {
     for entry in std::fs::read_dir(dir)
         .with_context(|| format!("read YAML extractor dir {}", dir.display()))?
     {
-        let entry =
-            entry.with_context(|| format!("iter YAML extractor dir {}", dir.display()))?;
+        let entry = entry.with_context(|| format!("iter YAML extractor dir {}", dir.display()))?;
         let path = entry.path();
         if !path.is_file() {
             continue;
@@ -573,7 +571,10 @@ patterns:
         .unwrap();
         let err = load_dir(dir).unwrap_err();
         let msg = format!("{err:#}");
-        assert!(msg.contains("broken.yaml"), "error must name the bad file: {msg}");
+        assert!(
+            msg.contains("broken.yaml"),
+            "error must name the bad file: {msg}"
+        );
     }
 
     #[test]

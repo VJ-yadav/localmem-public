@@ -95,8 +95,18 @@ impl Indexer {
         let vector = embedder
             .embed(&payload.text)
             .context("embed capture content")?;
+        let tags_json = serde_json::to_string(&payload.tags).unwrap_or_else(|_| "{}".into());
         vector_store
-            .add(&event.id.to_string(), &vector, &payload.text, event.ts)
+            .add(
+                &event.id.to_string(),
+                &vector,
+                &payload.text,
+                &tags_json,
+                // Valid-time, not recorded-at: same canonical helper the lex
+                // index and facts use, so all derived stores agree on a
+                // capture's time (critical for imported/dated history).
+                payload.effective_capture_instant(event.ts),
+            )
             .await
             .context("write embedding to vectors.lance")?;
 
@@ -214,6 +224,7 @@ mod tests {
     fn capture(text: &str) -> Event {
         Event::new(
             EventKind::Capture(CapturePayload {
+                time: None,
                 text: text.into(),
                 rewritten_text: None,
                 kind: Default::default(),

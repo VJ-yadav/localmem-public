@@ -63,6 +63,7 @@ pub fn run_checks(home: &Path, core_addr: &str) -> Vec<CheckResult> {
         check_binary_on_path(),
         check_home_initialised(home),
         check_model_present(home),
+        check_reranker(home),
         check_server_reachable(core_addr),
     ];
     if cfg!(target_os = "macos") {
@@ -186,6 +187,62 @@ fn check_model_present(home: &Path) -> CheckResult {
                 model_dir.display()
             )),
         }
+    }
+}
+
+fn check_reranker(home: &Path) -> CheckResult {
+    // Config coherence (the check whose absence let the 56% run silently skip
+    // reranking): if rerank is ENABLED (config.toml or LOCALMEM_RETRIEVER_RERANK,
+    // both folded in by Config::load), the cross-encoder MUST load AND run — else
+    // /search degrades to first-stage with only a log line, and a whole benchmark
+    // can pass through unreranked. Disabled rerank is a clean PASS.
+    let cfg = crate::config::Config::load(home).unwrap_or_default();
+    if !cfg.retriever.rerank {
+        return CheckResult {
+            name: "reranker",
+            status: Status::Pass,
+            detail: "rerank disabled (first-stage retrieval only)".into(),
+            fix: None,
+        };
+    }
+    let dir = std::env::var("LOCALMEM_RERANKER_DIR")
+        .ok()
+        .filter(|s| !s.is_empty())
+        .map(PathBuf::from)
+        .unwrap_or_else(|| home.join("models").join("reranker"));
+    match crate::rerank::Reranker::load(&dir) {
+        Ok(mut r) => match r.rerank("preflight query", &["a relevant preflight document"]) {
+            Ok(scores) if scores.len() == 1 => CheckResult {
+                name: "reranker",
+                status: Status::Pass,
+                detail: format!("rerank ON; cross-encoder loads + scores from {}", dir.display()),
+                fix: None,
+            },
+            _ => CheckResult {
+                name: "reranker",
+                status: Status::Fail,
+                detail: format!(
+                    "rerank=true but the model at {} loaded yet failed to SCORE (incompatible ONNX?); search would silently degrade to first-stage",
+                    dir.display()
+                ),
+                fix: Some(
+                    "use a sequence-classification cross-encoder ONNX (e.g. ms-marco-MiniLM), or set [retriever].rerank=false".into(),
+                ),
+            },
+        },
+        Err(e) => CheckResult {
+            name: "reranker",
+            status: Status::Fail,
+            detail: format!(
+                "rerank=true but no loadable reranker model at {} ({}); search would silently degrade to first-stage",
+                dir.display(),
+                format!("{e:#}").lines().next().unwrap_or("load failed")
+            ),
+            fix: Some(format!(
+                "fetch a reranker model.onnx + tokenizer.json into {}  (or LOCALMEM_RERANKER_DIR), or disable rerank",
+                dir.display()
+            )),
+        },
     }
 }
 
@@ -444,6 +501,30 @@ mod tests {
         std::env::remove_var("LOCALMEM_MODEL_DIR");
         let r = check_model_present(tmp.path());
         assert_eq!(r.status, Status::Pass);
+    }
+
+    #[test]
+    fn reranker_check_passes_when_rerank_disabled() {
+        std::env::remove_var("LOCALMEM_RETRIEVER_RERANK");
+        let tmp = tempdir().unwrap();
+        write_events_file(tmp.path());
+        let r = check_reranker(tmp.path());
+        assert_eq!(r.status, Status::Pass);
+        assert!(r.detail.contains("disabled"));
+    }
+
+    #[test]
+    fn reranker_check_fails_when_enabled_but_model_unloadable() {
+        let tmp = tempdir().unwrap();
+        write_events_file(tmp.path());
+        fs::write(tmp.path().join("config.toml"), "[retriever]\nrerank = true\n").unwrap();
+        std::env::set_var("LOCALMEM_RERANKER_DIR", tmp.path().join("no-model-here"));
+        let r = check_reranker(tmp.path());
+        std::env::remove_var("LOCALMEM_RERANKER_DIR");
+        // rerank=true but model absent => FAIL (this is the check that would have
+        // caught the 56% silent-degrade), with an actionable fix.
+        assert_eq!(r.status, Status::Fail);
+        assert!(r.fix.is_some());
     }
 
     #[test]

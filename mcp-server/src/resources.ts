@@ -12,6 +12,7 @@
 
 import type { CoreClient } from "./client.js";
 import {
+  ResourceGettingStartedResponse,
   ResourceProfileResponse,
   ResourceRecentResponse,
   ResourceSubjectsResponse,
@@ -65,6 +66,15 @@ export const RecentResource: ResourceHandler = {
   fetch: (core) => core.get("/resource/recent", ResourceRecentResponse),
 };
 
+export const GettingStartedResource: ResourceHandler = {
+  uri: "localmem://getting-started",
+  name: "getting-started",
+  description:
+    "Onboarding: confirms localmem is set up and gives the dashboard URL + ordered next steps (bring your history, etc.). Surface this to the user on first use so they know what they have and what to do.",
+  mimeType: "application/json",
+  fetch: (core) => core.get("/getting-started", ResourceGettingStartedResponse),
+};
+
 /// Every resource the MCP server exposes. Order is not significant.
 /// Adding a resource here is the only registration step.
 export const RESOURCES: ReadonlyArray<ResourceHandler> = [
@@ -72,6 +82,7 @@ export const RESOURCES: ReadonlyArray<ResourceHandler> = [
   SubjectsResource,
   TagsResource,
   RecentResource,
+  GettingStartedResource,
 ];
 
 /// Resolve a `localmem://...` URI to a handler. Honors a `?limit=N`

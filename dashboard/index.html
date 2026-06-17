@@ -1,120 +1,66 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>localmem &middot; dashboard</title>
-<meta name="description" content="Visually browse the memory in your local localmem store. Read-only.">
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='20' fill='%230a0a0a'/%3E%3Ctext x='50' y='65' font-family='monospace' font-size='42' font-weight='700' text-anchor='middle' fill='%2300ff88'%3Elm%3C/text%3E%3C/svg%3E">
-<link rel="stylesheet" href="styles.css">
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>localmem</title>
+  <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
+  <div class="app">
+    <!-- Sidebar: brand + tab nav + live status -->
+    <aside class="sidebar">
+      <div class="brand">
+        <span class="brand-mark">◆</span>
+        <span class="brand-name">localmem</span>
+      </div>
 
-<header class="topbar">
-  <div class="brand">
-    local<span class="brand-dot">·</span>mem
-    <span class="brand-sub">dashboard</span>
-  </div>
-  <div class="status">
-    <span id="conn-pill" class="pill pill-muted">connecting&hellip;</span>
-    <span id="version-pill" class="pill pill-muted" hidden></span>
-  </div>
-  <div class="search">
-    <input id="search-input" type="search" placeholder="Search memories. Press Enter.">
-  </div>
-</header>
+      <nav class="nav" id="nav">
+        <button class="nav-item" data-tab="home"><span class="ni">▦</span> Home</button>
+        <button class="nav-item" data-tab="memory"><span class="ni">◑</span> Memory</button>
+        <button class="nav-item" data-tab="graph"><span class="ni">⬡</span> Graph</button>
+        <button class="nav-item" data-tab="brain"><span class="ni">✦</span> Brain</button>
+        <button class="nav-item" data-tab="trust"><span class="ni">⎙</span> Trust</button>
+      </nav>
 
-<main class="grid">
-  <!-- LEFT: stores + subjects + tags -->
-  <aside class="panel">
-    <section>
-      <h2>Stores</h2>
-      <p class="hint">All <code>.localmem</code> directories on this machine. <span class="active-marker">active</span> is the one this dashboard is reading.</p>
-      <ul id="stores-list" class="counted-list">
-        <li class="empty">loading&hellip;</li>
-      </ul>
-    </section>
-    <section>
-      <h2>Subjects</h2>
-      <p class="hint">Entities the active store knows about. Click to recall.</p>
-      <ul id="subjects-list" class="counted-list">
-        <li class="empty">loading&hellip;</li>
-      </ul>
-    </section>
-    <section>
-      <h2>Tags</h2>
-      <p class="hint">Container tags in use. Click to filter recent.</p>
-      <ul id="tags-list" class="counted-list">
-        <li class="empty">loading&hellip;</li>
-      </ul>
-    </section>
+      <div class="sidebar-foot">
+        <div class="status" id="status">
+          <span class="dot" id="status-dot"></span>
+          <span id="status-text">connecting…</span>
+        </div>
+        <div class="ver" id="version"></div>
+      </div>
+    </aside>
+
+    <!-- Main -->
+    <main class="main">
+      <header class="topbar">
+        <div class="search">
+          <span class="search-ic">⌕</span>
+          <input id="globalSearch" type="search" placeholder="Search memory…  (hybrid: keyword + meaning)" autocomplete="off" />
+        </div>
+        <div class="topbar-right">
+          <select id="projectSelect" class="select" title="Scope to a project"></select>
+          <button id="themeBtn" class="btn" title="Toggle light / dark">☾</button>
+          <button id="refreshBtn" class="btn" title="Refresh">⟲</button>
+        </div>
+      </header>
+
+      <section id="view" class="view"><div class="loading">Loading…</div></section>
+    </main>
+  </div>
+
+  <!-- Slide-over detail panel -->
+  <div class="drawer-scrim" id="drawerScrim" hidden></div>
+  <aside class="drawer" id="drawer" hidden>
+    <div class="drawer-head">
+      <span id="drawerTitle">Detail</span>
+      <button class="btn ghost" id="drawerClose">✕</button>
+    </div>
+    <div class="drawer-body" id="drawerBody"></div>
   </aside>
 
-  <!-- CENTER: feed -->
-  <section class="panel center">
-    <div class="panel-head">
-      <h2 id="feed-title">Recent captures</h2>
-      <div class="panel-controls">
-        <button id="refresh-btn" class="btn btn-sm" title="Refresh data">refresh</button>
-        <button id="clear-filter-btn" class="btn btn-sm" hidden>clear filter</button>
-      </div>
-    </div>
-    <div id="feed" class="feed">
-      <div class="empty">loading&hellip;</div>
-    </div>
-  </section>
-
-  <!-- RIGHT: detail / search results -->
-  <aside class="panel right">
-    <section>
-      <h2 id="detail-title">Search</h2>
-      <div id="detail" class="detail">
-        <p class="hint">Type a query above and press Enter, or click a subject / tag on the left.</p>
-      </div>
-    </section>
-    <section>
-      <h2>Profile</h2>
-      <p class="hint">Synthesized markdown profile across all subjects.</p>
-      <button id="load-profile" class="btn btn-sm">load profile</button>
-      <pre id="profile-md" class="profile" hidden></pre>
-    </section>
-  </aside>
-</main>
-
-<footer class="footer">
-  <div class="footer-stats">
-    <span id="stat-subjects" class="stat">0 subjects</span>
-    <span class="stat-sep">&middot;</span>
-    <span id="stat-tags" class="stat">0 tags</span>
-    <span class="stat-sep">&middot;</span>
-    <span id="stat-recent" class="stat">0 recent</span>
-  </div>
-  <div class="footer-meta">
-    <span id="endpoint-label" class="muted">connected to <code>http://127.0.0.1:7788</code></span>
-    &middot;
-    <a href="https://localmem.org">localmem.org</a>
-    &middot;
-    <a href="https://github.com/VJ-yadav/localmem-community">github</a>
-  </div>
-</footer>
-
-<!-- Modal for errors / setup help -->
-<dialog id="help-dialog" class="dialog">
-  <h2>Core is not reachable right now</h2>
-  <p>The dashboard's proxy is up, but the supervised <code>localmem serve</code> subprocess isn't responding at <code id="help-endpoint">/api</code>.</p>
-  <p>Usually this means the core died after a store-switch failed, or the <code>localmem</code> binary isn't on your PATH.</p>
-  <h3>Most likely fixes</h3>
-  <ol>
-    <li><strong>Is the <code>localmem</code> binary installed?</strong> <code>which localmem</code> should print a path. If not, install via <code>curl -fsSL https://localmem.org/install | sh</code>.</li>
-    <li><strong>Was the binary started by this dashboard?</strong> If you started <code>localmem serve</code> yourself in a separate terminal, that's fine. Stop the duplicate before retrying.</li>
-    <li><strong>Restart the dashboard.</strong> Ctrl-C the <code>python3 dashboard/serve.py</code> process and restart it. It will spawn a fresh <code>localmem serve</code> subprocess.</li>
-  </ol>
-  <p class="hint">The dashboard supervises a single <code>localmem serve</code> process. Switching stores via the Stores panel kills + restarts that subprocess; the brief disconnect during a switch is normal.</p>
-  <form method="dialog">
-    <button class="btn btn-primary">close</button>
-  </form>
-</dialog>
-
-<script src="app.js"></script>
+  <script src="vendor/cytoscape.min.js"></script>
+  <script src="app.js"></script>
 </body>
 </html>

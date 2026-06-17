@@ -52,11 +52,9 @@ export async function runInstall(argv: string[]): Promise<void> {
     printHelp()
     return
   }
-  if (!args.client) {
-    printHelp()
-    fail("missing --client <name>")
-  }
-  if (!SUPPORTED_CLIENTS.includes(args.client!)) {
+  // --client is OPTIONAL: `localmem setup` auto-detects and wires every client
+  // it finds. A named client is only a hint we additionally guarantee below.
+  if (args.client && !SUPPORTED_CLIENTS.includes(args.client)) {
     fail(
       `unknown client ${JSON.stringify(args.client)}. ` +
         `Supported: ${SUPPORTED_CLIENTS.join(", ")}`,
@@ -66,20 +64,31 @@ export async function runInstall(argv: string[]): Promise<void> {
   const bin = await resolveLocalmemBinary(args)
   log(`localmem binary: ${bin}`)
 
-  // Dispatch to the Rust CLI. We pass the client through unchanged
-  // so any future client additions surface there first (the npm
-  // side stays a thin adapter).
-  log(`registering localmem with ${args.client} ...`)
-  const result = spawnSync(bin, ["mcp", "install", args.client!], {
-    stdio: "inherit",
-    env: process.env,
-  })
-  if (result.status !== 0) {
-    fail(`\`${bin} mcp install ${args.client}\` exited ${result.status ?? "?"}`)
+  // ONE install path: run the FULL `localmem setup` (init + fetch model + start
+  // the always-on service + wire detected clients + verify), so an npm install
+  // lands in the SAME complete state as `curl | sh && localmem setup`. Any new
+  // onboarding step lives in `setup`, never in a second command. The Rust CLI
+  // streams the shared onboarding status (§8) via stdio:inherit.
+  log("running localmem setup ...")
+  const setup = spawnSync(bin, ["setup"], { stdio: "inherit", env: process.env })
+  if (setup.status !== 0) {
+    fail(`\`${bin} setup\` exited ${setup.status ?? "?"}`)
+  }
+
+  // If a specific client was named, guarantee it is wired even if setup did not
+  // auto-detect it. Idempotent (mcp install backs up + rewrites one entry).
+  if (args.client) {
+    log(`ensuring ${args.client} is wired ...`)
+    const wire = spawnSync(bin, ["mcp", "install", args.client], {
+      stdio: "inherit",
+      env: process.env,
+    })
+    if (wire.status !== 0) {
+      fail(`\`${bin} mcp install ${args.client}\` exited ${wire.status ?? "?"}`)
+    }
   }
 
   log("done.")
-  printNextSteps(args.client!)
 }
 
 function parseArgs(argv: string[]): ParsedArgs {
@@ -205,25 +214,6 @@ async function downloadLocalmem(): Promise<string> {
   // shell config hasn't been re-sourced.
   process.env.PATH = `${join(homedir(), ".local", "bin")}:${process.env.PATH ?? ""}`
   return expected
-}
-
-function printNextSteps(client: string): void {
-  const lines = [
-    "",
-    "Next steps:",
-    "  1. Start the localmem core server in the background:",
-    "       localmem serve",
-    "  2. Restart " + clientDisplayName(client) + " so it re-reads its MCP config.",
-    "  3. Ask the assistant to recall a memory; the `memory_recall` tool",
-    "     should now be available.",
-    "",
-    "Manage with:",
-    "  npx localmem-mcp install --client <other-client>   # wire another client",
-    "  localmem mcp list                                  # show every wired client",
-    "  localmem mcp uninstall " + client + "                       # remove this entry",
-    "",
-  ]
-  process.stdout.write(lines.join("\n"))
 }
 
 function clientDisplayName(slug: string): string {

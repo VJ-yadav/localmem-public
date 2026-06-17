@@ -23,6 +23,45 @@ fn resolve_home(home_override: Option<&str>) -> Result<PathBuf> {
     Ok(PathBuf::from(home))
 }
 
+/// Slugs of MCP clients currently wired to localmem (their config carries the
+/// localmem entry). Read-only and best-effort: a client whose config can't be
+/// read is treated as not wired. Used by `localmem status` to show that one
+/// store sits under several tools. `home_override` mirrors the other handlers;
+/// pass `None` to check the real `$HOME` where client configs live.
+pub fn wired_clients(home_override: Option<&str>) -> Vec<&'static str> {
+    let Ok(home) = resolve_home(home_override) else {
+        return Vec::new();
+    };
+    let mut wired = Vec::new();
+    for id in ClientId::all() {
+        let a = adapter(*id);
+        if a.unsupported_msg().is_none() && matches!(a.is_installed(&home), Ok(true)) {
+            wired.push(id.slug());
+        }
+    }
+    wired
+}
+
+/// Every SUPPORTED MCP client as `(slug, display_label, wired)`, for the
+/// onboarding "wire another client" surface (§8). Skips clients localmem cannot
+/// wire on this platform. `wired` is whether localmem is already registered.
+pub fn all_clients_status(home_override: Option<&str>) -> Vec<(String, String, bool)> {
+    let home = resolve_home(home_override).ok();
+    let mut out = Vec::new();
+    for id in ClientId::all() {
+        let a = adapter(*id);
+        if a.unsupported_msg().is_some() {
+            continue;
+        }
+        let wired = home
+            .as_ref()
+            .map(|h| matches!(a.is_installed(h), Ok(true)))
+            .unwrap_or(false);
+        out.push((id.slug().to_string(), id.display_name().to_string(), wired));
+    }
+    out
+}
+
 /// `localmem mcp install <client>` handler.
 ///
 /// `core_addr` is the localmem core HTTP server address (used to
@@ -58,7 +97,31 @@ pub fn run_install(
     let receipt = adapter
         .install(&home, &entry)
         .with_context(|| format!("install localmem into {}", id.display_name()))?;
-    emit_install(id, &entry, &receipt, as_json)
+    emit_install(id, &entry, &receipt, as_json)?;
+    // Render the SHARED onboarding next-steps (§8): the same source `localmem
+    // setup` and the MCP `localmem://getting-started` resource use, so a user
+    // who arrived via `localmem mcp install` (or `npx localmem-mcp install`,
+    // which delegates here) gets identical guidance, never a divergent one.
+    if !as_json {
+        let understanding = crate::config::Config::load(home.as_ref())
+            .map(|c| c.understanding.enabled)
+            .unwrap_or(false);
+        let imports = crate::cli::import_wizard::scan_default_locations()
+            .map(|d| d.len())
+            .unwrap_or(0);
+        let clients = all_clients_status(home_override);
+        let gs = crate::onboarding::build(
+            crate::onboarding::dashboard_url(core_addr),
+            crate::onboarding::model_present(home.as_ref()),
+            crate::onboarding::core_reachable(core_addr),
+            &clients,
+            understanding,
+            imports,
+        );
+        println!();
+        print!("{}", gs.render_terminal());
+    }
+    Ok(())
 }
 
 /// `localmem mcp uninstall <client>` handler. Removes only the

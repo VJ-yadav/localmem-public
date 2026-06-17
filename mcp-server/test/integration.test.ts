@@ -74,7 +74,60 @@ test("memory_write rejects empty content via core 400", async () => {
 test("memory_search returns the previously written capture", async () => {
   const out = await SearchTool.run({ query: "functional rust" }, core);
   expect(out.ok).toBe(true);
+  // memory_write content is untagged (global), so it still surfaces under the
+  // default project scope via include_global.
   expect(out.results.length).toBeGreaterThan(0);
+});
+
+// ---- §2.8 default project scope on memory_search -------------------------
+//
+// These assert the SCOPE the tool puts on the wire (the trust boundary), using
+// a mock core that records the request body. Deterministic and core-free.
+
+function captureBody(): { core: CoreClient; body(): Record<string, unknown> } {
+  let seen: Record<string, unknown> = {};
+  const mock = {
+    async post(_path: string, body: unknown) {
+      seen = body as Record<string, unknown>;
+      return { ok: true, results: [] };
+    },
+  } as unknown as CoreClient;
+  return { core: mock, body: () => seen };
+}
+
+test("memory_search default-scopes to the current project_path + global", async () => {
+  process.env.LOCALMEM_PROJECT_PATH = "/tmp/proj-A/";
+  const cap = captureBody();
+  await SearchTool.run({ query: "x" }, cap.core);
+  delete process.env.LOCALMEM_PROJECT_PATH;
+  // Trailing slash trimmed to match the hook's project_path tag.
+  expect(cap.body().scope).toEqual({
+    key: "project_path",
+    value: "/tmp/proj-A",
+    include_global: true,
+  });
+});
+
+test("memory_search all_projects=true sends no scope (searches everything)", async () => {
+  const cap = captureBody();
+  await SearchTool.run({ query: "x", all_projects: true }, cap.core);
+  expect(cap.body().scope).toBeUndefined();
+});
+
+test("memory_search project=<label> scopes to that named project", async () => {
+  const cap = captureBody();
+  await SearchTool.run({ query: "x", project: "localmem" }, cap.core);
+  expect(cap.body().scope).toEqual({
+    key: "project",
+    value: "localmem",
+    include_global: true,
+  });
+});
+
+test("memory_search all_projects wins over project when both set", async () => {
+  const cap = captureBody();
+  await SearchTool.run({ query: "x", all_projects: true, project: "localmem" }, cap.core);
+  expect(cap.body().scope).toBeUndefined();
 });
 
 test("memory_recall returns facts about user", async () => {
@@ -99,14 +152,31 @@ test("memory_journal includes the COMMIT entry from the write", async () => {
 
 // ---- T-54: MCP Resources -------------------------------------------------
 
-test("resources registry advertises four localmem:// URIs", () => {
+test("resources registry advertises the localmem:// URIs", () => {
   const uris = RESOURCES.map((r) => r.uri).sort();
   expect(uris).toEqual([
+    "localmem://getting-started",
     "localmem://profile",
     "localmem://recent",
     "localmem://subjects",
     "localmem://tags",
   ]);
+});
+
+test("resource localmem://getting-started returns onboarding markdown + steps", async () => {
+  const fetcher = resolveResource("localmem://getting-started");
+  expect(fetcher).toBeDefined();
+  const out = (await fetcher!(core)) as {
+    ok: boolean;
+    dashboard_url: string;
+    ready: boolean;
+    checks: { key: string; ok: boolean }[];
+    markdown: string;
+  };
+  expect(out.ok).toBe(true);
+  expect(out.dashboard_url).toContain("http");
+  expect(out.checks.length).toBeGreaterThan(0);
+  expect(out.markdown).toContain("localmem is set up");
 });
 
 test("resource localmem://profile returns synthesized markdown", async () => {
@@ -195,6 +265,7 @@ test("MCP resources/list returns all four localmem URIs over the protocol", asyn
       const out = await client.listResources();
       const uris = out.resources.map((r: { uri: string }) => r.uri).sort();
       expect(uris).toEqual([
+        "localmem://getting-started",
         "localmem://profile",
         "localmem://recent",
         "localmem://subjects",

@@ -8,7 +8,7 @@
 //! v0.1 expects the user to extract the ZIP first and pass the path
 //! to `conversations.json`.
 
-use super::{ingest_messages, ImportStats, ImportedMessage};
+use super::{ingest_parsed, ImportStats, ImportedMessage, ParsedImport};
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
 use serde::Deserialize;
@@ -37,7 +37,14 @@ struct ChatMessage {
 
 /// Parse a Claude export `conversations.json` file and ingest every
 /// human message as a capture.
+/// Ingest a Claude export into `home` (parse + dedup + append).
 pub fn import_claude(home: &Path, json_path: &Path) -> Result<ImportStats> {
+    ingest_parsed(home, "claude", parse_claude(json_path)?)
+}
+
+/// Parse a Claude `conversations.json` into normalized messages without writing
+/// anything (so the CLI can `--dry-run` / preview).
+pub fn parse_claude(json_path: &Path) -> Result<ParsedImport> {
     let raw = std::fs::read_to_string(json_path)
         .with_context(|| format!("read Claude export at {}", json_path.display()))?;
     let file: ConversationFile =
@@ -74,12 +81,17 @@ pub fn import_claude(home: &Path, json_path: &Path) -> Result<ImportStats> {
                 text,
                 timestamp: ts.with_timezone(&Utc),
                 conversation_title: title.clone(),
+                tags: Default::default(),
             });
         }
     }
     messages.sort_by_key(|m| m.timestamp);
 
-    ingest_messages(home, "claude", messages, conversations, skipped)
+    Ok(ParsedImport {
+        messages,
+        conversations_seen: conversations,
+        messages_skipped: skipped,
+    })
 }
 
 #[cfg(test)]

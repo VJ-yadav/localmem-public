@@ -175,6 +175,7 @@ mod tests {
         let log = EventLog::open(home).unwrap();
         let event = Event::new(
             EventKind::Capture(CapturePayload {
+                time: None,
                 text: text.to_string(),
                 rewritten_text: None,
                 kind,
@@ -205,7 +206,7 @@ mod tests {
         let id = append_capture(tmp.path(), "buy milk", Kind::Todo);
 
         let lex = LexicalIndex::open_reader_only(tmp.path()).unwrap();
-        let before = lex.meta_for(&id.to_string()).unwrap();
+        let before = lex.meta_for(&id.to_string()).unwrap().unwrap();
         assert!(!before.done, "fresh todo should be open");
         drop(lex);
 
@@ -219,7 +220,7 @@ mod tests {
         .unwrap();
 
         let lex = LexicalIndex::open_reader_only(tmp.path()).unwrap();
-        let after = lex.meta_for(&id.to_string()).unwrap();
+        let after = lex.meta_for(&id.to_string()).unwrap().unwrap();
         assert!(after.done, "todo should be done after `todo done`");
     }
 
@@ -247,7 +248,7 @@ mod tests {
         .unwrap();
 
         let lex = LexicalIndex::open_reader_only(tmp.path()).unwrap();
-        let meta = lex.meta_for(&id.to_string()).unwrap();
+        let meta = lex.meta_for(&id.to_string()).unwrap().unwrap();
         assert!(!meta.done, "todo should be open after `todo open`");
     }
 
@@ -276,8 +277,7 @@ mod tests {
         let tmp = tempdir().unwrap();
         init_run(Some(tmp.path().to_str().unwrap()), true).unwrap();
         let bogus = EventId::new().to_string();
-        let err = run(tmp.path().to_str(), TodoAction::Done, &bogus, None, true)
-            .unwrap_err();
+        let err = run(tmp.path().to_str(), TodoAction::Done, &bogus, None, true).unwrap_err();
         let msg = format!("{err:#}");
         assert!(
             msg.contains("no event with id"),

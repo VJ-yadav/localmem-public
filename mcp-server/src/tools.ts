@@ -13,6 +13,7 @@
 // integration tests iterate over `TOOLS` instead of hand-listing names.
 
 import type { CoreClient } from "./client.js";
+import { resolveProjectPath } from "./project.js";
 import {
   ForgetInput,
   JournalInput,
@@ -67,6 +68,11 @@ export const WriteTool: ToolHandler<typeof WriteInput._type, WriteResponse> = {
       content: { type: "string", description: "The text to remember." },
       source: { type: "string", description: "App that produced this memory." },
       kind: { type: "string", description: "Optional sub-kind tag (preference, note, ...)." },
+      as_of: {
+        type: "string",
+        description:
+          "Optional RFC3339 instant the memory actually occurred (e.g. when importing past history). Defaults to now. Sets the memory's valid-time so 'how long ago' style recall is correct.",
+      },
     },
     ["content"],
   ),
@@ -79,52 +85,92 @@ export const WriteTool: ToolHandler<typeof WriteInput._type, WriteResponse> = {
 
 export const SearchTool: ToolHandler<typeof SearchInput._type, SearchResponse> = {
   name: "memory_search",
-  description: "Hybrid search (BM25 + ANN + bitemporal filter) over your memories.",
+  description:
+    "Hybrid search (BM25 + ANN + bitemporal filter) over your memories. Scoped by " +
+    "default to the CURRENT project plus global memory, so another project's content " +
+    "never leaks in; pass all_projects=true to search everything.",
   inputSchema: zodToJsonSchema(
     {
       query: { type: "string", description: "Free-text query." },
       k: { type: "integer", minimum: 1, maximum: 100, description: "Max results (default 10)." },
       at_time: { type: "string", description: "RFC3339 timestamp for bitemporal recall." },
+      all_projects: {
+        type: "boolean",
+        description:
+          "Search across ALL projects. Default false: results are scoped to the current " +
+          "project plus global user-common memory, so other projects never leak in.",
+      },
+      project: {
+        type: "string",
+        description:
+          "Scope to a named project (its label) instead of the current working directory.",
+      },
     },
     ["query"],
   ),
   _validator: SearchInput,
   async run(input: unknown, core: CoreClient): Promise<SearchResponse> {
-    const parsed = SearchInput.parse(input);
-    return core.post("/search", parsed, Responses.Search);
+    const { all_projects, project, ...rest } = SearchInput.parse(input);
+    // Default-scope to this project + global; the absence of a scope on the
+    // wire is what tells the core to search everything (all_projects).
+    const body: Record<string, unknown> = { ...rest };
+    if (!all_projects) {
+      const named = project?.trim();
+      body.scope =
+        named && named.length > 0
+          ? { key: "project", value: named, include_global: true }
+          : { key: "project_path", value: resolveProjectPath(), include_global: true };
+    }
+    return core.post("/search", body, Responses.Search);
   },
 };
 
 export const RecallTool: ToolHandler<typeof RecallInput._type, RecallResponse> = {
   name: "memory_recall",
-  description: "List facts about a named entity, optionally as-of a past instant.",
+  description:
+    "List facts about a named entity, optionally as-of a past instant. Scoped to " +
+    "the current project plus global by default; all_projects=true recalls across all.",
   inputSchema: zodToJsonSchema(
     {
       entity: { type: "string", description: "The subject to recall facts about." },
       at_time: { type: "string", description: "RFC3339 timestamp for bitemporal recall." },
+      all_projects: {
+        type: "boolean",
+        description: "Recall facts from ALL projects. Default false: current project + global.",
+      },
     },
     ["entity"],
   ),
   _validator: RecallInput,
   async run(input: unknown, core: CoreClient): Promise<RecallResponse> {
-    const parsed = RecallInput.parse(input);
-    return core.post("/recall", parsed, Responses.Recall);
+    const { all_projects, ...rest } = RecallInput.parse(input);
+    const body: Record<string, unknown> = { ...rest };
+    if (!all_projects) body.project = resolveProjectPath();
+    return core.post("/recall", body, Responses.Recall);
   },
 };
 
 export const ProfileTool: ToolHandler<typeof ProfileInput._type, ProfileResponse> = {
   name: "memory_profile",
-  description: "Synthesize a markdown profile from all (or scoped) facts.",
+  description:
+    "Synthesize a markdown profile from facts. Scoped to the current project plus " +
+    "global by default; all_projects=true synthesizes across every project.",
   inputSchema: zodToJsonSchema(
     {
       scope: { type: "string", description: "Restrict to a single subject." },
+      all_projects: {
+        type: "boolean",
+        description: "Synthesize across ALL projects. Default false: current project + global.",
+      },
     },
     [],
   ),
   _validator: ProfileInput,
   async run(input: unknown, core: CoreClient): Promise<ProfileResponse> {
-    const parsed = ProfileInput.parse(input);
-    return core.post("/profile", parsed, Responses.Profile);
+    const { all_projects, ...rest } = ProfileInput.parse(input);
+    const body: Record<string, unknown> = { ...rest };
+    if (!all_projects) body.project = resolveProjectPath();
+    return core.post("/profile", body, Responses.Profile);
   },
 };
 

@@ -99,10 +99,7 @@ pub enum LexicalError {
     /// from the event log via `localmem replay`. `found = None` means
     /// the index pre-dates schema versioning and we cannot verify
     /// compatibility, so we treat it as drift.
-    SchemaDrift {
-        found: Option<u32>,
-        current: u32,
-    },
+    SchemaDrift { found: Option<u32>, current: u32 },
 }
 
 impl std::fmt::Display for LexicalError {
@@ -166,8 +163,9 @@ fn read_schema_version(home: &Path) -> Result<Option<u32>> {
             Ok(Some(v))
         }
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
-        Err(e) => Err(anyhow::Error::new(e)
-            .context(format!("read schema version at {}", path.display()))),
+        Err(e) => {
+            Err(anyhow::Error::new(e).context(format!("read schema version at {}", path.display())))
+        }
     }
 }
 
@@ -362,10 +360,15 @@ impl LexicalIndex {
         let EventKind::Capture(payload) = &event.kind else {
             return Ok(());
         };
+        // Index the capture's VALID-TIME (when it actually occurred) via the
+        // canonical helper, not the recorded-at `event.ts`. The facts path
+        // already sources valid_from from this; the lex index must agree or
+        // imported/dated history (life-import, a benchmark haystack) loses its
+        // real time and temporal reasoning / valid-time recency break.
         // Truncate to second precision: tantivy's DateTime is precision-aware
-        // and our queries on `ts` operate at coarser granularity than the
-        // event log timestamp.
-        let ts = DateTime::from_timestamp_secs(event.ts.timestamp());
+        // and our `ts` queries operate at coarser granularity than the log.
+        let ts =
+            DateTime::from_timestamp_secs(payload.effective_capture_instant(event.ts).timestamp());
         let mut doc = TantivyDocument::default();
         doc.add_text(self.fields.event_id, event.id.to_string());
         // T-55: index the context-rewritten text when present, else
@@ -422,7 +425,10 @@ impl LexicalIndex {
     /// (legacy data; the lex layer doesn't carry every event the
     /// log has). Callers that need the rebuild to be loud should
     /// observe via `meta_for(target_id)` afterwards.
-    pub fn apply_capture_update(&mut self, payload: &crate::event::UpdateCapturePayload) -> Result<()> {
+    pub fn apply_capture_update(
+        &mut self,
+        payload: &crate::event::UpdateCapturePayload,
+    ) -> Result<()> {
         use tantivy::schema::Value;
         let target_id_str = payload.target_id.to_string();
         let searcher = self.reader.searcher();
@@ -463,7 +469,10 @@ impl LexicalIndex {
         if let Some(td) = old.get_first(self.fields.ts).and_then(|v| v.as_datetime()) {
             new_doc.add_date(self.fields.ts, td);
         }
-        if let Some(v) = old.get_first(self.fields.tags_json).and_then(|v| v.as_str()) {
+        if let Some(v) = old
+            .get_first(self.fields.tags_json)
+            .and_then(|v| v.as_str())
+        {
             new_doc.add_text(self.fields.tags_json, v);
         }
         if let Some(v) = old.get_first(self.fields.kind).and_then(|v| v.as_str()) {
@@ -616,7 +625,12 @@ impl LexicalIndex {
     ///
     /// Looks up by an exact `event_id` term against the STRING-indexed
     /// `event_id` field, so this is O(log n) on the index, not O(n).
-    pub fn meta_for(&self, event_id: &str) -> Result<HitMeta> {
+    /// Look up a capture's meta by event id. Returns `None` when the id is NOT
+    /// in the lexical index (a vector hit whose capture was never lex-indexed, or
+    /// a vectors/lex divergence). The caller MUST distinguish this miss from a
+    /// found-but-untagged capture: under an active scope or tag filter, an
+    /// unverifiable hit is excluded (fail-closed), never leaked as "global."
+    pub fn meta_for(&self, event_id: &str) -> Result<Option<HitMeta>> {
         let searcher = self.reader.searcher();
         let term = tantivy::Term::from_field_text(self.fields.event_id, event_id);
         let query = tantivy::query::TermQuery::new(term, tantivy::schema::IndexRecordOption::Basic);
@@ -624,7 +638,7 @@ impl LexicalIndex {
             .search(&query, &TopDocs::with_limit(1))
             .context("lookup meta by event_id")?;
         let Some((_, address)) = top.first() else {
-            return Ok(HitMeta::default());
+            return Ok(None);
         };
         let doc: TantivyDocument = searcher
             .doc(*address)
@@ -633,12 +647,12 @@ impl LexicalIndex {
         let ts = doc_ts(&doc, self.fields.ts);
         let kind = string_field(&doc, self.fields.kind);
         let done = doc_u64(&doc, self.fields.done) == 1;
-        Ok(HitMeta {
+        Ok(Some(HitMeta {
             tags,
             ts,
             kind,
             done,
-        })
+        }))
     }
 }
 
@@ -729,9 +743,7 @@ fn get_field(schema: &Schema, name: &str) -> Result<Field> {
 /// reads stay backward-compatible across schema additions.
 fn doc_u64(doc: &TantivyDocument, field: Field) -> u64 {
     use tantivy::schema::Value;
-    doc.get_first(field)
-        .and_then(|v| v.as_u64())
-        .unwrap_or(0)
+    doc.get_first(field).and_then(|v| v.as_u64()).unwrap_or(0)
 }
 
 fn string_field(doc: &TantivyDocument, field: Field) -> String {
@@ -768,6 +780,7 @@ mod tests {
     fn capture(text: &str) -> Event {
         Event::new(
             EventKind::Capture(CapturePayload {
+                time: None,
                 text: text.into(),
                 rewritten_text: None,
                 kind: Default::default(),
@@ -1077,6 +1090,7 @@ mod tests {
         }
         Event::new(
             EventKind::Capture(CapturePayload {
+                time: None,
                 text: text.into(),
                 rewritten_text: None,
                 kind: Default::default(),
@@ -1168,7 +1182,7 @@ mod tests {
         let expected_secs = ev.ts.timestamp();
         idx.index_event(&ev).unwrap();
         idx.commit().unwrap();
-        let meta = idx.meta_for(&ev.id.to_string()).unwrap();
+        let meta = idx.meta_for(&ev.id.to_string()).unwrap().unwrap();
         assert_eq!(
             meta.tags.get("project").map(String::as_str),
             Some("localmem")
@@ -1189,13 +1203,15 @@ mod tests {
         let bare = capture("untagged content");
         idx.index_event(&bare).unwrap();
         idx.commit().unwrap();
-        // Unknown event: empty tags, ts defaults to epoch (callers
-        // that check `is_visible` will treat this as "long expired"
-        // for any ephemeral retention, which is the right fallback).
+        // Unknown event: meta_for now returns None (the retriever fails closed
+        // under an active scope/filter rather than leaking it as global).
         let unknown = idx.meta_for("01HXY00000000000000000000Z").unwrap();
-        assert!(unknown.tags.is_empty());
-        // Known but untagged: empty tags, real ts.
-        let bare_meta = idx.meta_for(&bare.id.to_string()).unwrap();
+        assert!(unknown.is_none(), "unknown event id has no meta");
+        // Known but untagged: Some(meta) with empty tags, real ts.
+        let bare_meta = idx
+            .meta_for(&bare.id.to_string())
+            .unwrap()
+            .expect("known capture has meta");
         assert!(bare_meta.tags.is_empty());
         assert_eq!(bare_meta.ts.timestamp(), bare.ts.timestamp());
     }

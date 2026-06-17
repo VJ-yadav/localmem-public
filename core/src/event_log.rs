@@ -79,9 +79,28 @@ impl EventLog {
     /// Stream events from disk. Returns the current file state at call time;
     /// later appends are not visible to an existing iterator.
     pub fn iter(&self) -> Result<impl Iterator<Item = Result<Event>>> {
+        self.iter_to(u64::MAX)
+    }
+
+    /// Current on-disk size in bytes. Every append ends on a `\n` boundary and
+    /// fsyncs before returning, so this value always lands exactly between two
+    /// events, never mid-line. Used by T-119 to snapshot the log boundary at
+    /// startup so a background scan never races a concurrent appender.
+    pub fn byte_len(&self) -> Result<u64> {
+        let meta = std::fs::metadata(&self.path)
+            .with_context(|| format!("stat event log at {}", self.path.display()))?;
+        Ok(meta.len())
+    }
+
+    /// Like [`Self::iter`] but stops after `byte_limit` bytes. Pair it with a
+    /// [`Self::byte_len`] taken earlier to iterate exactly the prefix that
+    /// existed at that instant, ignoring anything appended since. Because
+    /// `byte_len` lands on a line boundary, the limit never truncates a line.
+    pub fn iter_to(&self, byte_limit: u64) -> Result<impl Iterator<Item = Result<Event>>> {
+        use std::io::Read;
         let file = File::open(&self.path)
             .with_context(|| format!("open event log for read: {}", self.path.display()))?;
-        let reader = BufReader::new(file);
+        let reader = BufReader::new(file.take(byte_limit));
         Ok(reader.lines().enumerate().map(|(idx, line_result)| {
             let line = line_result.with_context(|| format!("read event log line {}", idx + 1))?;
             let event: Event = serde_json::from_str(&line)
@@ -125,6 +144,7 @@ mod tests {
     fn capture(text: &str) -> Event {
         Event::new(
             EventKind::Capture(CapturePayload {
+                time: None,
                 text: text.into(),
                 rewritten_text: None,
                 kind: Default::default(),

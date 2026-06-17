@@ -144,14 +144,7 @@ pub fn run(home: Option<&str>, fact_id_str: &str, as_json: bool) -> Result<()> {
     };
 
     let mut out = io::stdout().lock();
-    write_output(
-        &mut out,
-        &audit_fact,
-        &sources,
-        &touches,
-        &journal,
-        as_json,
-    )
+    write_output(&mut out, &audit_fact, &sources, &touches, &journal, as_json)
 }
 
 fn capture_row(ev: &Event) -> Option<AuditCapture> {
@@ -278,8 +271,12 @@ fn write_output<W: Write>(
         writeln!(out, "Journal:").context("write journal header")?;
         for j in journal {
             let reasoning = j.reasoning.as_deref().unwrap_or("");
-            writeln!(out, "  {} action={} rule={} {}", j.ts, j.action, j.rule, reasoning)
-                .context("write journal row")?;
+            writeln!(
+                out,
+                "  {} action={} rule={} {}",
+                j.ts, j.action, j.rule, reasoning
+            )
+            .context("write journal row")?;
         }
     }
     Ok(())
@@ -309,6 +306,7 @@ mod tests {
     fn make_capture(text: &str) -> Event {
         Event::new(
             EventKind::Capture(CapturePayload {
+                time: None,
                 text: text.into(),
                 rewritten_text: None,
                 kind: Default::default(),
@@ -435,7 +433,15 @@ mod tests {
             rule: "high_signal".into(),
             reasoning: Some("seeded from test".into()),
         }];
-        write_output(&mut buf, &audit_fact, &sources, &touches, &journal_rows, true).unwrap();
+        write_output(
+            &mut buf,
+            &audit_fact,
+            &sources,
+            &touches,
+            &journal_rows,
+            true,
+        )
+        .unwrap();
         let json: Value = serde_json::from_slice(&buf).unwrap();
         assert_eq!(json["ok"], true);
         assert_eq!(json["fact"]["subject"], "user");

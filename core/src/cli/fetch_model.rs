@@ -73,18 +73,23 @@ impl KnownModel {
     }
 }
 
-/// Built-in registry. v0.2 ships three entries:
-/// - `bge-small-en-v1.5`: the embedder we already use at runtime.
-///   Today users have to populate `<home>/models/bge-small-en-v1.5/`
-///   manually; T-62 makes it one command.
+/// Built-in registry:
+/// - `bge-small-en-v1.5`: the embedder used at runtime for vector search.
+/// - `reranker`: the ms-marco-MiniLM-L-6-v2 cross-encoder. Required by the
+///   default-on `[retriever].rerank` (validated by LongMemEval v0.3.2: 75%,
+///   up from the 56% rerank-off baseline). Lands in `<home>/models/reranker/`,
+///   the exact dir the retriever resolves at runtime.
 /// - `llama3.2:3b`, `qwen2.5:7b`: future-LLM placeholders for T-58
 ///   `local-llm` extractor + T-55 `local-llm` rewriter mode. Pre-
 ///   fetching today is harmless; consumers stub-bail until their
 ///   real impls land.
 ///
-/// SHA256 fields are currently empty on every entry — `localmem
-/// fetch-model` warns about unverified downloads until a v0.2.1
-/// follow-up fills in authoritative hashes.
+/// The `reranker` entry carries armed SHA256 hashes, verified against the
+/// exact files that produced the 75% eval, so its download is integrity-
+/// checked and fails loudly on mismatch (no silently-wrong model can reach
+/// a user's first run). The embedder + LLM entries still ship empty hashes;
+/// `fetch-model` warns about those until a follow-up fills in authoritative
+/// values.
 pub const KNOWN_MODELS: &[KnownModel] = &[
     KnownModel {
         slug: "bge-small-en-v1.5",
@@ -101,6 +106,24 @@ pub const KNOWN_MODELS: &[KnownModel] = &[
                 url: "https://huggingface.co/BAAI/bge-small-en-v1.5/resolve/main/tokenizer.json",
                 sha256_hex: "",
                 size_bytes: 0,
+            },
+        ],
+    },
+    KnownModel {
+        slug: "reranker",
+        description: "ms-marco-MiniLM-L-6-v2 ONNX cross-encoder (~87 MB). Reranks first-stage hits; required by the default-on [retriever].rerank. Validated by LongMemEval v0.3.2 (75%).",
+        files: &[
+            ModelFile {
+                filename: "model.onnx",
+                url: "https://huggingface.co/Xenova/ms-marco-MiniLM-L-6-v2/resolve/main/onnx/model.onnx",
+                sha256_hex: "c623d0bcb99f4622beb413eaef00cfbe5db20df9f1dd982da4b4f26022881870",
+                size_bytes: 90992115,
+            },
+            ModelFile {
+                filename: "tokenizer.json",
+                url: "https://huggingface.co/Xenova/ms-marco-MiniLM-L-6-v2/resolve/main/tokenizer.json",
+                sha256_hex: "d241a60d5e8f04cc1b2b3e9ef7a4921b27bf526d9f6050ab90f9267a1f9e5c66",
+                size_bytes: 711396,
             },
         ],
     },
@@ -232,12 +255,7 @@ fn fetch_known(home: &Path, model: &KnownModel, dry_run: bool) -> Result<JsonOut
     })
 }
 
-fn fetch_custom(
-    home: &Path,
-    slug: &str,
-    url: &str,
-    dry_run: bool,
-) -> Result<JsonOutput> {
+fn fetch_custom(home: &Path, slug: &str, url: &str, dry_run: bool) -> Result<JsonOutput> {
     // For `--url`, we don't know the file's size or SHA upfront, so
     // skip the disk-space precheck and verification — the user
     // accepts that responsibility when bypassing the registry.
@@ -387,7 +405,11 @@ fn check_disk_space(home: &Path, declared_total: u64) -> Result<()> {
         return Ok(());
     }
     let target = home.join(MODELS_DIR);
-    let probe_dir = if target.is_dir() { target } else { home.to_path_buf() };
+    let probe_dir = if target.is_dir() {
+        target
+    } else {
+        home.to_path_buf()
+    };
     match free_space_bytes(&probe_dir) {
         Some(free) => {
             if free < declared_total.saturating_mul(2) {
@@ -591,8 +613,7 @@ mod tests {
     #[tokio::test]
     async fn dry_run_reports_would_download_without_touching_disk() {
         let tmp = tempdir().unwrap();
-        let (addr, shutdown) =
-            spawn_server(vec![("/m.bin", b"abc".to_vec())]).await;
+        let (addr, shutdown) = spawn_server(vec![("/m.bin", b"abc".to_vec())]).await;
         let url = Box::leak(format!("http://{addr}/m.bin").into_boxed_str());
         let model = KnownModel {
             slug: "test",
@@ -609,7 +630,12 @@ mod tests {
         assert_eq!(report.files.len(), 1);
         assert_eq!(report.files[0].outcome, FileOutcome::WouldDownload);
         // Nothing landed on disk.
-        assert!(!tmp.path().join(MODELS_DIR).join("test").join("m.bin").exists());
+        assert!(!tmp
+            .path()
+            .join(MODELS_DIR)
+            .join("test")
+            .join("m.bin")
+            .exists());
         let _ = shutdown.send(());
     }
 
@@ -664,7 +690,10 @@ mod tests {
         assert!(msg.contains("SHA-256 mismatch"), "got: {msg}");
         let dir = tmp.path().join(MODELS_DIR).join("mismatch");
         // Neither the final file nor the partial should remain.
-        assert!(!dir.join("m.bin").exists(), "final file must not land on mismatch");
+        assert!(
+            !dir.join("m.bin").exists(),
+            "final file must not land on mismatch"
+        );
         assert!(
             !dir.join("m.partial").exists(),
             "partial must be cleaned up on mismatch"
@@ -713,8 +742,7 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("m.bin"), b"wrong content").unwrap();
 
-        let (addr, shutdown) =
-            spawn_server(vec![("/m.bin", b"different".to_vec())]).await;
+        let (addr, shutdown) = spawn_server(vec![("/m.bin", b"different".to_vec())]).await;
         let url = Box::leak(format!("http://{addr}/m.bin").into_boxed_str());
         let sha = Box::leak(sha256(b"different").into_boxed_str());
         let model = KnownModel {
@@ -739,8 +767,7 @@ mod tests {
         // still work, just with a WARN log that verification didn't
         // run. The test asserts the path-level outcome, not the log.
         let tmp = tempdir().unwrap();
-        let (addr, shutdown) =
-            spawn_server(vec![("/m.bin", b"unverified".to_vec())]).await;
+        let (addr, shutdown) = spawn_server(vec![("/m.bin", b"unverified".to_vec())]).await;
         let url = Box::leak(format!("http://{addr}/m.bin").into_boxed_str());
         let model = KnownModel {
             slug: "unarmed",
@@ -771,13 +798,29 @@ mod tests {
     }
 
     #[test]
-    fn registry_includes_all_three_v0_2_entries() {
+    fn registry_includes_known_entries() {
         // Sanity check on the public registry — the user-facing
         // surface depends on these slugs being stable.
         let slugs: Vec<&str> = KNOWN_MODELS.iter().map(|m| m.slug).collect();
         assert!(slugs.contains(&"bge-small-en-v1.5"));
+        assert!(slugs.contains(&"reranker"));
         assert!(slugs.contains(&"llama3.2:3b"));
         assert!(slugs.contains(&"qwen2.5:7b"));
+    }
+
+    #[test]
+    fn reranker_entry_is_armed_and_lands_in_runtime_dir() {
+        // The retriever resolves the cross-encoder at `<home>/models/reranker/`,
+        // so the slug (= subdir) must stay "reranker". The SHAs are armed against
+        // the exact files that produced the 75% eval, so a mismatched download
+        // fails loudly instead of silently degrading a user's first run.
+        let m = lookup("reranker").expect("reranker must be registered");
+        assert_eq!(m.slug, "reranker");
+        assert_eq!(m.files.len(), 2);
+        for f in m.files {
+            assert!(!f.sha256_hex.is_empty(), "{} must ship an armed SHA", f.filename);
+            assert!(f.size_bytes > 0, "{} must declare a size for the disk precheck", f.filename);
+        }
     }
 
     #[test]

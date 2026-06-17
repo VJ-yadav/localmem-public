@@ -35,8 +35,8 @@ pub mod hybrid;
 // (server/routes.rs, cli/search.rs, config.rs) keep compiling
 // unchanged. New consumers should prefer the trait + registry path.
 pub use hybrid::{
-    apply_recency_bonus, apply_recency_bonus_kind, source, Filters, HybridHit, HybridRetriever,
-    DEFAULT_RECENCY_WEIGHT,
+    apply_recency_bonus, apply_recency_bonus_kind, scope_matches, source, Filters, HybridHit,
+    HybridRetriever, Scope, DEFAULT_RECENCY_WEIGHT, PROJECT_LABEL_TAG, PROJECT_PATH_TAG,
 };
 
 use anyhow::{bail, Context, Result};
@@ -66,12 +66,7 @@ pub trait Retriever: Send + Sync {
     /// "nothing matched" case; an `Err` means the retriever
     /// itself failed (DuckDB down, model unloaded). The registry
     /// degrades gracefully on per-retriever errors.
-    async fn search(
-        &self,
-        query: &str,
-        k: usize,
-        filters: &Filters,
-    ) -> Result<Vec<HybridHit>>;
+    async fn search(&self, query: &str, k: usize, filters: &Filters) -> Result<Vec<HybridHit>>;
 }
 
 /// RRF constant used at the cross-retriever merge level. Matches
@@ -147,12 +142,7 @@ impl RetrieverRegistry {
     /// highly in one retriever but not another. OVERFETCH_REGISTRY
     /// is intentionally small (2x) because each retriever is
     /// already overfetching internally.
-    pub async fn search(
-        &self,
-        query: &str,
-        k: usize,
-        filters: &Filters,
-    ) -> Result<Vec<HybridHit>> {
+    pub async fn search(&self, query: &str, k: usize, filters: &Filters) -> Result<Vec<HybridHit>> {
         if k == 0 || self.retrievers.is_empty() {
             return Ok(Vec::new());
         }
@@ -196,6 +186,7 @@ impl RetrieverRegistry {
                         }
                     })
                     .or_insert_with(|| HybridHit {
+                        valid_from: hit.valid_from,
                         event_id: hit.event_id,
                         content: hit.content,
                         score: bonus,
@@ -271,9 +262,9 @@ impl RetrieverRegistry {
                     )?;
                     Box::new(hybrid)
                 }
-                entity_graph::NAME => Box::new(entity_graph::EntityGraphRetriever::new(
-                    ctx.facts.clone(),
-                )),
+                entity_graph::NAME => {
+                    Box::new(entity_graph::EntityGraphRetriever::new(ctx.facts.clone()))
+                }
                 other => bail!(
                     "[retriever].plugins entry {other:?} is unknown; expected one of: \
                      \"hybrid\", \"entity-graph\""
@@ -354,6 +345,7 @@ mod tests {
             content: format!("content for {event_id}"),
             score,
             sources: vec![source],
+            valid_from: None,
         }
     }
 
@@ -433,8 +425,7 @@ mod tests {
     fn from_config_rejects_unknown_plugin() {
         let cfg = crate::config::RetrieverSection {
             plugins: vec!["nope".into()],
-            recency_weight: 0.01,
-            decay_half_life: std::collections::BTreeMap::new(),
+            ..Default::default()
         };
         // Build a minimal ctx — we won't reach the matching arms.
         let tmp = tempfile::tempdir().unwrap();
@@ -458,8 +449,7 @@ mod tests {
     fn from_config_rejects_empty_plugins_list() {
         let cfg = crate::config::RetrieverSection {
             plugins: vec![],
-            recency_weight: 0.01,
-            decay_half_life: std::collections::BTreeMap::new(),
+            ..Default::default()
         };
         let tmp = tempfile::tempdir().unwrap();
         let facts = std::sync::Arc::new(tokio::sync::Mutex::new(
@@ -481,8 +471,7 @@ mod tests {
         // clear message instead of silently dropping hybrid.
         let cfg = crate::config::RetrieverSection {
             plugins: vec!["hybrid".into()],
-            recency_weight: 0.01,
-            decay_half_life: std::collections::BTreeMap::new(),
+            ..Default::default()
         };
         let tmp = tempfile::tempdir().unwrap();
         let facts = std::sync::Arc::new(tokio::sync::Mutex::new(
@@ -504,8 +493,7 @@ mod tests {
         // ctx is None; entity-graph still builds.
         let cfg = crate::config::RetrieverSection {
             plugins: vec!["entity-graph".into()],
-            recency_weight: 0.01,
-            decay_half_life: std::collections::BTreeMap::new(),
+            ..Default::default()
         };
         let tmp = tempfile::tempdir().unwrap();
         let facts = std::sync::Arc::new(tokio::sync::Mutex::new(

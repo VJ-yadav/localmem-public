@@ -1,6 +1,6 @@
 [package]
 name = "localmem"
-version = "0.2.0"
+version = "0.3.3"
 edition = "2021"
 license = "Apache-2.0"
 description = "Local-first memory layer for AI agents and AI users."
@@ -30,6 +30,12 @@ regex = "1.11"
 # Time + IDs
 chrono = { version = "0.4", features = ["serde"] }
 ulid = { version = "1.1", features = ["serde"] }
+# Temporal envelope (P1): IANA tz database for recomputable instants + the
+# machine's local zone NAME (not just offset). chrono-tz bundles a pinned tzdb
+# whose version we stamp on derived instants so replay can recompute correctly
+# after a tzdb upgrade.
+chrono-tz = "0.10"
+iana-time-zone = "0.1"
 
 # Errors
 anyhow = "1.0"
@@ -72,6 +78,12 @@ ort = { version = "=2.0.0-rc.10", default-features = false, features = [
 ndarray = "0.16"
 tokenizers = { version = "0.21", default-features = false, features = ["onig"] }
 
+# North Star token accounting (SPEC-intelligence-v2 §2.9). Real, model-correct
+# token counts (NOT a word estimate) for the GPT family; the BPE vocab is
+# embedded at compile time, so this stays offline / local-first. MIT licensed
+# (Apache-2.0 compatible).
+tiktoken-rs = "0.7"
+
 # Arrow types used to construct LanceDB record batches (T-09).
 # Version pinned to match what `lancedb` 0.29 resolves so we share concrete
 # types: a mismatched arrow version compiles but types don't unify, e.g.
@@ -106,6 +118,20 @@ libc = "0.2"
 
 [dev-dependencies]
 tempfile = "3"
+# Integration tests (tests/integration.rs) are a separate crate, so they need
+# their own deps beyond the library: tokio for async (replay), chrono to build
+# the as-of instants for bitemporal queries.
+tokio = { version = "1.40", features = ["macros", "rt-multi-thread"] }
+chrono = { version = "0.4", features = ["serde"] }
+
+# Local dev builds only (cargo build/test/check). Keeps panic backtraces with
+# correct file:line, but drops the bulk of debug-info size that the bundled
+# native deps (DuckDB-from-source, ONNX runtime) generate. No effect on the
+# shipped release binary or on runtime behavior; this only trims the local
+# `target/` and speeds up linking. Bump to `debug = true` for a heavy lldb
+# session.
+[profile.dev]
+debug = "line-tables-only"
 
 [profile.release]
 opt-level = 3

@@ -66,12 +66,7 @@ const RECENCY_TAU_DAYS: f64 = 30.0;
 /// This is the uniform-tau path retained for backwards compat. T-73
 /// callers reach for [`apply_recency_bonus_kind`] when per-kind
 /// half-lives are configured.
-pub fn apply_recency_bonus(
-    score: f32,
-    ts: DateTime<Utc>,
-    now: DateTime<Utc>,
-    weight: f32,
-) -> f32 {
+pub fn apply_recency_bonus(score: f32, ts: DateTime<Utc>, now: DateTime<Utc>, weight: f32) -> f32 {
     if weight == 0.0 {
         return score;
     }
@@ -122,12 +117,79 @@ pub mod source {
 /// doesn't care about filtering passes `&Filters::default()`. Future
 /// task slices will extend this struct (kind, source) so the
 /// retriever surface stays stable as filters grow.
+/// Project-scope predicate (SPEC-intelligence-v2 §2.8): restrict retrieval to
+/// the current project PLUS user-common (global) memory, never another project.
+/// `key` is the scoping tag (`project_path`, the collision-proof key the hooks
+/// stamp, or `project`). A hit passes when its `key` tag equals `value`, or, when
+/// `include_global`, the hit carries no `key` tag at all (an untagged, explicit
+/// `memory_write` = user-common capture). Cross-project retrieval is the absence
+/// of a scope, set only on explicit opt-in.
+#[derive(Debug, Clone)]
+pub struct Scope {
+    pub key: String,
+    pub value: String,
+    pub include_global: bool,
+}
+
+/// Canonical tag key for the COLLISION-PROOF project scope: the full working
+/// directory the memory was captured in (set by the capture hook, see
+/// `core/src/cli/hooks.rs`). This is the key every scoped read should use; the
+/// readable [`PROJECT_LABEL_TAG`] is for display only and can collide across
+/// repos that share a basename.
+pub const PROJECT_PATH_TAG: &str = "project_path";
+
+/// Readable project label (basename of the cwd). Display-only; not collision
+/// proof. Kept as a constant so the one place that still scopes by label
+/// (legacy / a user typing a name) references the same string as the hook.
+pub const PROJECT_LABEL_TAG: &str = "project";
+
+impl Scope {
+    /// The canonical project scope: match the collision-proof `project_path`
+    /// tag, and include global (untagged) user-common memory. This is the
+    /// single constructor every channel (search, profile, recall, events,
+    /// graph, journal, ...) should use so scoping behaves identically.
+    pub fn project_path(value: impl Into<String>) -> Self {
+        Self {
+            key: PROJECT_PATH_TAG.to_string(),
+            value: value.into(),
+            include_global: true,
+        }
+    }
+
+    /// Scope by the readable `project` label instead of the full path. Use only
+    /// when a path is unavailable (a user typed a name). Still includes global.
+    pub fn project_label(value: impl Into<String>) -> Self {
+        Self {
+            key: PROJECT_LABEL_TAG.to_string(),
+            value: value.into(),
+            include_global: true,
+        }
+    }
+}
+
+/// SPEC §2.8 project-scope predicate, as a free function so EVERY read path
+/// (the retriever, facts-backed reads, event-backed reads) enforces the exact
+/// same rule. `true` when scoping is off, or the hit carries the scoped
+/// key=value, or (when `include_global`) the hit has no such tag (untagged =
+/// user-common). A hit tagged with ANOTHER project's value returns `false`.
+pub fn scope_matches(tags: &BTreeMap<String, String>, scope: &Option<Scope>) -> bool {
+    match scope {
+        None => true,
+        Some(s) => match tags.get(&s.key) {
+            Some(v) => v == &s.value,
+            None => s.include_global,
+        },
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Filters {
     /// Subset match on the capture's container tags (T-51). A hit
     /// passes when every `(key, value)` in this map matches the
     /// capture's tags exactly. Empty = no tag filtering.
     pub tags: BTreeMap<String, String>,
+    /// SPEC §2.8 project scope. `None` = unscoped (legacy / explicit "all").
+    pub scope: Option<Scope>,
     /// Reserved-tag visibility policy (T-51c). [`Visibility::Default`]
     /// excludes captures tagged `visibility=private`;
     /// [`Visibility::IncludePrivate`] surfaces them and is the
@@ -151,6 +213,7 @@ impl Default for Filters {
     fn default() -> Self {
         Self {
             tags: BTreeMap::new(),
+            scope: None,
             visibility: crate::reserved_tags::Visibility::Default,
             now: Utc::now(),
             at_time: None,
@@ -174,6 +237,13 @@ impl Filters {
     pub fn passes_reserved(&self, tags: &BTreeMap<String, String>, ts: DateTime<Utc>) -> bool {
         crate::reserved_tags::is_visible(tags, ts, self.now, self.visibility)
     }
+
+    /// SPEC §2.8 project-scope predicate. Delegates to the shared
+    /// [`scope_matches`] free function so the retriever and every other read
+    /// path enforce one identical rule.
+    pub fn passes_scope(&self, tags: &BTreeMap<String, String>) -> bool {
+        scope_matches(tags, &self.scope)
+    }
 }
 
 /// Merged hit returned by [`HybridRetriever::search`]. `score` is the RRF
@@ -185,6 +255,13 @@ pub struct HybridHit {
     pub content: String,
     pub score: f32,
     pub sources: Vec<&'static str>,
+    /// Valid-time of the hit (when the underlying capture/fact actually
+    /// occurred), threaded from the per-hit ts the retriever already computes
+    /// for recency. Surfaced so callers (server `/search`, CLI) can do
+    /// temporal reasoning. `None` only when the ts side-map has no entry,
+    /// which shouldn't happen for an indexed capture. Completes the T-63 TODO.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub valid_from: Option<DateTime<Utc>>,
 }
 
 /// Bundle of retrieval primitives wired together for hybrid search.
@@ -199,12 +276,12 @@ pub struct HybridRetriever {
     /// `Box<dyn Retriever>` dispatch through the T-60 registry.
     /// One query at a time per retriever instance is the contract;
     /// the Mutex is held only across one embed call.
-    embedder: Mutex<Embedder>,
-    vectors: VectorStore,
+    embedder: std::sync::Arc<Mutex<Option<Embedder>>>,
+    vectors: std::sync::Arc<Option<VectorStore>>,
     /// Wrapped in Mutex so the struct is `Sync` (Tantivy's
     /// internals are not Sync via the writer-lock path). T-60
     /// `Retriever` trait requires `Send + Sync` for dyn dispatch.
-    lexical: Mutex<LexicalIndex>,
+    lexical: std::sync::Arc<Mutex<LexicalIndex>>,
     /// Wrapped in `Arc<Mutex>` so the EntityGraphRetriever and
     /// HybridRetriever can share one DuckDB connection. DuckDB's
     /// `Connection` carries a `RefCell` (not Sync) so the Mutex
@@ -220,6 +297,13 @@ pub struct HybridRetriever {
     /// whose stored kind matches a key. Unknown / missing kinds fall
     /// back to the uniform tau path so backwards compat is preserved.
     decay_half_life_days: std::collections::HashMap<String, f64>,
+    /// Phase 2 / T-74: MMR diversity lambda in `[0,1]`. `None` disables the
+    /// diversity re-rank (default), preserving pure relevance ordering.
+    mmr_lambda: Option<f32>,
+    /// Phase 2 / T-74b: optional cross-encoder reranker, shared behind a mutex
+    /// like the embedder (`Session::run` needs `&mut`). `None` inside = no
+    /// reranking (default).
+    reranker: std::sync::Arc<Mutex<Option<crate::rerank::Reranker>>>,
 }
 
 impl HybridRetriever {
@@ -250,13 +334,35 @@ impl HybridRetriever {
         lexical: LexicalIndex,
         facts: std::sync::Arc<Mutex<FactsStore>>,
     ) -> Self {
+        Self::new_shared(
+            std::sync::Arc::new(Mutex::new(Some(embedder))),
+            std::sync::Arc::new(Some(vectors)),
+            std::sync::Arc::new(Mutex::new(lexical)),
+            facts,
+        )
+    }
+
+    /// Construct from fully-shared handles (T-63). This is the form the server
+    /// uses: it shares the same `Arc<Mutex<…>>` stores it already holds in
+    /// `AppState` (and the write path uses), so ONE retrieval path serves both
+    /// CLI and server with no duplicated search code. `embedder` and `vectors`
+    /// are `Option` so the retriever degrades to lexical-only when the BGE
+    /// model isn't installed, instead of failing.
+    pub fn new_shared(
+        embedder: std::sync::Arc<Mutex<Option<Embedder>>>,
+        vectors: std::sync::Arc<Option<VectorStore>>,
+        lexical: std::sync::Arc<Mutex<LexicalIndex>>,
+        facts: std::sync::Arc<Mutex<FactsStore>>,
+    ) -> Self {
         Self {
             decay_half_life_days: std::collections::HashMap::new(),
-            embedder: Mutex::new(embedder),
+            embedder,
             vectors,
-            lexical: Mutex::new(lexical),
+            lexical,
             facts,
             recency_weight: DEFAULT_RECENCY_WEIGHT,
+            mmr_lambda: None,
+            reranker: std::sync::Arc::new(Mutex::new(None)),
         }
     }
 
@@ -277,6 +383,23 @@ impl HybridRetriever {
         half_lives: std::collections::HashMap<String, f64>,
     ) -> Self {
         self.decay_half_life_days = half_lives;
+        self
+    }
+
+    /// Phase 2 / T-74: set the MMR diversity lambda. `None` (default) disables
+    /// MMR. See [`crate::config::RetrieverSection::mmr_lambda`].
+    pub fn with_mmr_lambda(mut self, lambda: Option<f32>) -> Self {
+        self.mmr_lambda = lambda;
+        self
+    }
+
+    /// Phase 2 / T-74b: attach an optional cross-encoder reranker, shared
+    /// behind a mutex (like the embedder). `None` inside disables reranking.
+    pub fn with_reranker(
+        mut self,
+        reranker: std::sync::Arc<Mutex<Option<crate::rerank::Reranker>>>,
+    ) -> Self {
+        self.reranker = reranker;
         self
     }
 
@@ -322,7 +445,7 @@ impl HybridRetriever {
                 .search(query, fetch, active_tags)
                 .context("hybrid: lexical pass")?;
             raw.into_iter()
-                .filter(|h| filters.passes_reserved(&h.tags, h.ts))
+                .filter(|h| filters.passes_reserved(&h.tags, h.ts) && filters.passes_scope(&h.tags))
                 .collect()
         };
 
@@ -331,15 +454,21 @@ impl HybridRetriever {
         // this struct's `search` can be `&self` (required for trait
         // dispatch through `Box<dyn Retriever>`); contention is bounded
         // because each retriever instance serves one query at a time.
+        // Vector pass is optional (T-63): with no embedder/vector store
+        // (e.g. the BGE model isn't installed) we degrade to lexical-only
+        // rather than fail. This is what lets the server route every search
+        // through one retrieval path regardless of model availability.
         let query_vec = {
             let mut emb = self.embedder.lock().await;
-            emb.embed(query).context("hybrid: embed query")?
+            match emb.as_mut() {
+                Some(e) => Some(e.embed(query).context("hybrid: embed query")?),
+                None => None,
+            }
         };
-        let vec_hits_raw = self
-            .vectors
-            .search(&query_vec, fetch)
-            .await
-            .context("hybrid: vector pass")?;
+        let vec_hits_raw = match (query_vec.as_ref(), self.vectors.as_ref().as_ref()) {
+            (Some(qv), Some(vs)) => vs.search(qv, fetch).await.context("hybrid: vector pass")?,
+            _ => Vec::new(),
+        };
 
         // Vec hits don't carry tag metadata; look up via the lex index
         // (every capture is indexed in lex by construction, so this is
@@ -360,26 +489,57 @@ impl HybridRetriever {
             // cost per hit.
             let lex = self.lexical.lock().await;
             for vh in vec_hits_raw {
-                let meta = lex
-                    .meta_for(&vh.event_id)
-                    .context("hybrid: lookup vec-hit meta")?;
+                // COHESION (§2.8): filter by the vector row's OWN tags + ts, not a
+                // borrowed lexical lookup that can diverge. Each store
+                // self-describes, so scope/tag/reserved filtering is identical on
+                // the lex and vec paths and the two cannot disagree.
                 if let Some(tag_filter) = active_tags {
-                    if !crate::tag_match::matches(&meta.tags, tag_filter) {
+                    if !crate::tag_match::matches(&vh.tags, tag_filter) {
                         continue;
                     }
                 }
-                if !filters.passes_reserved(&meta.tags, meta.ts) {
+                if !filters.passes_reserved(&vh.tags, vh.ts) {
                     continue;
                 }
-                meta_by_id.insert(vh.event_id.clone(), (meta.ts, meta.kind));
+                if !filters.passes_scope(&vh.tags) {
+                    continue;
+                }
+                // `kind` is only the recency half-life input; a lexical miss
+                // defaults harmlessly (ranking nicety, not correctness).
+                let kind = lex
+                    .meta_for(&vh.event_id)
+                    .context("hybrid: lookup vec-hit kind")?
+                    .map(|m| m.kind)
+                    .unwrap_or_default();
+                meta_by_id.insert(vh.event_id.clone(), (vh.ts, kind));
                 vec_hits.push(vh);
             }
         }
 
-        // RRF merge keyed by event_id. We preserve the first-seen content
-        // string so display works even when only one retriever populated it
-        // (lexical snippet vs the full embedded content string).
+        // RRF merge keyed by event_id. The first INSERT sets the content; later
+        // hits for the same id only add score. P5 (§2.6): process VEC hits FIRST
+        // so the best-scoring CHUNK (vec_hits are relevance-ordered) becomes the
+        // snippet, not a lexical full-text dump. Only a lexical-ONLY hit falls
+        // back to its snippet, which the post-merge cap then bounds.
         let mut merged: HashMap<String, HybridHit> = HashMap::new();
+        for (rank, h) in vec_hits.iter().enumerate() {
+            let bonus = rrf_score(rank);
+            merged
+                .entry(h.event_id.clone())
+                .and_modify(|m| {
+                    m.score += bonus;
+                    if !m.sources.contains(&source::VEC) {
+                        m.sources.push(source::VEC);
+                    }
+                })
+                .or_insert_with(|| HybridHit {
+                    event_id: h.event_id.clone(),
+                    content: h.content.clone(),
+                    score: bonus,
+                    sources: vec![source::VEC],
+                    valid_from: None, // filled from meta_by_id below
+                });
+        }
         for (rank, h) in lex_hits.iter().enumerate() {
             let bonus = rrf_score(rank);
             meta_by_id
@@ -398,23 +558,7 @@ impl HybridRetriever {
                     content: h.snippet.clone(),
                     score: bonus,
                     sources: vec![source::LEX],
-                });
-        }
-        for (rank, h) in vec_hits.iter().enumerate() {
-            let bonus = rrf_score(rank);
-            merged
-                .entry(h.event_id.clone())
-                .and_modify(|m| {
-                    m.score += bonus;
-                    if !m.sources.contains(&source::VEC) {
-                        m.sources.push(source::VEC);
-                    }
-                })
-                .or_insert_with(|| HybridHit {
-                    event_id: h.event_id.clone(),
-                    content: h.content.clone(),
-                    score: bonus,
-                    sources: vec![source::VEC],
+                    valid_from: None, // filled from meta_by_id below
                 });
         }
 
@@ -438,6 +582,23 @@ impl HybridRetriever {
         }
 
         let mut out: Vec<HybridHit> = merged.into_values().collect();
+        // P5 (§2.6): cap every snippet so no single hit dumps a huge blob into an
+        // agent's context (the measured 14K-token failure). A full chunk passes
+        // uncut; a lexical-only full-text hit is bounded. This also keeps the
+        // reranker scoring sharp snippets, not essays.
+        for h in out.iter_mut() {
+            h.content = crate::chunk::cap_words(&h.content, crate::chunk::SNIPPET_CAP_WORDS);
+        }
+        // T-63 completion: surface each hit's valid-time. The ts already lives
+        // in the `meta_by_id` side-map (seeded from the lex hit's ts and the
+        // vec hit's meta lookup) for the recency bonus; thread it onto the
+        // public hit so the server `/search` response and CLI can do temporal
+        // reasoning instead of receiving a hardcoded `None`.
+        for hit in out.iter_mut() {
+            if let Some((ts, _kind)) = meta_by_id.get(&hit.event_id) {
+                hit.valid_from = Some(*ts);
+            }
+        }
         // T-57: apply recency bias. Computed off filters.now so the
         // reference instant matches the retention/visibility checks
         // upstream (a single, consistent "now" across the query).
@@ -474,8 +635,98 @@ impl HybridRetriever {
                 .partial_cmp(&a.score)
                 .unwrap_or(std::cmp::Ordering::Equal)
         });
-        out.truncate(k);
-        Ok(out)
+        // Phase 2 / T-74b: cross-encoder rerank — rescore the top-N candidates
+        // by true query-doc relevance before diversity/truncation. No-op when
+        // no reranker model is loaded.
+        let mut out = self.apply_rerank(query, out).await?;
+        // Phase 2 / T-74: optional MMR diversity re-rank over the top
+        // candidates. Falls back to plain score-order truncation when MMR is
+        // disabled or no embedder is available.
+        match self.mmr_lambda {
+            Some(lambda) => self.apply_mmr(out, lambda, k).await,
+            None => {
+                out.truncate(k);
+                Ok(out)
+            }
+        }
+    }
+
+    /// Phase 2 / T-74b: cross-encoder rescore of the top-N candidates. Rescores
+    /// up to `RERANK_CANDIDATES` hits by true query-doc relevance (overwriting
+    /// each hit's score) and reorders by the new scores. Returns the input
+    /// unchanged when no reranker model is loaded, so callers degrade to the
+    /// first-stage ranking.
+    async fn apply_rerank(&self, query: &str, mut hits: Vec<HybridHit>) -> Result<Vec<HybridHit>> {
+        const RERANK_CANDIDATES: usize = 30;
+        let mut guard = self.reranker.lock().await;
+        let rr = match guard.as_mut() {
+            Some(r) => r,
+            None => return Ok(hits),
+        };
+        if hits.len() > RERANK_CANDIDATES {
+            hits.truncate(RERANK_CANDIDATES);
+        }
+        if hits.is_empty() {
+            return Ok(hits);
+        }
+        let docs: Vec<&str> = hits.iter().map(|h| h.content.as_str()).collect();
+        let scores = rr.rerank(query, &docs).context("rerank candidates")?;
+        for (h, s) in hits.iter_mut().zip(scores.iter()) {
+            h.score = *s;
+        }
+        Ok(crate::rerank::reorder_by_scores(
+            hits,
+            &scores,
+            RERANK_CANDIDATES,
+        ))
+    }
+
+    /// Phase 2 / T-74: re-rank `hits` (already sorted by relevance) with
+    /// Maximal Marginal Relevance and truncate to `k`. Embeds each candidate's
+    /// content so diversity is measured on the same space as retrieval, bounded
+    /// to `k * MMR_CANDIDATES_PER_K` candidates to cap embedding cost. When no
+    /// embedder is present we cannot measure similarity, so we degrade to plain
+    /// score-order truncation.
+    async fn apply_mmr(
+        &self,
+        mut hits: Vec<HybridHit>,
+        lambda: f32,
+        k: usize,
+    ) -> Result<Vec<HybridHit>> {
+        const MMR_CANDIDATES_PER_K: usize = 4;
+        let cap = k.saturating_mul(MMR_CANDIDATES_PER_K).max(k);
+        if hits.len() > cap {
+            hits.truncate(cap);
+        }
+        let embeddings: Vec<Vec<f32>> = {
+            let mut emb_guard = self.embedder.lock().await;
+            let emb = match emb_guard.as_mut() {
+                Some(e) => e,
+                None => {
+                    hits.truncate(k);
+                    return Ok(hits);
+                }
+            };
+            let mut v = Vec::with_capacity(hits.len());
+            for h in &hits {
+                v.push(emb.embed(&h.content).context("mmr: embed candidate")?);
+            }
+            v
+        };
+        let items: Vec<(f32, Vec<f32>)> = hits
+            .iter()
+            .zip(embeddings)
+            .map(|(h, e)| (h.score, e))
+            .collect();
+        let order = mmr_select(&items, lambda, k);
+        let mut slots: Vec<Option<HybridHit>> = hits.into_iter().map(Some).collect();
+        let mut selected = Vec::with_capacity(order.len());
+        for i in order {
+            if let Some(h) = slots[i].take() {
+                selected.push(h);
+            }
+        }
+        Ok(selected)
     }
 }
 
@@ -483,6 +734,67 @@ fn rrf_score(rank: usize) -> f32 {
     // Rank-0 (the top hit) gets the largest bonus. The `+1` shifts to a
     // 1-based rank so the top hit scores `1 / (k + 1)` per the RRF formula.
     1.0 / (RRF_K + rank as f32 + 1.0)
+}
+
+/// Cosine similarity of two vectors. Returns 0 when either is the zero vector.
+fn cosine_sim(a: &[f32], b: &[f32]) -> f32 {
+    let mut dot = 0.0f32;
+    let mut na = 0.0f32;
+    let mut nb = 0.0f32;
+    for (x, y) in a.iter().zip(b.iter()) {
+        dot += x * y;
+        na += x * x;
+        nb += y * y;
+    }
+    let denom = na.sqrt() * nb.sqrt();
+    if denom == 0.0 {
+        0.0
+    } else {
+        dot / denom
+    }
+}
+
+/// Maximal Marginal Relevance selection (T-74). Greedily picks up to `k`
+/// indices from `items` (each `(relevance_score, embedding)`) maximizing
+/// `lambda * normalized_relevance - (1 - lambda) * max_sim_to_already_picked`.
+/// Relevance is min-max normalized to `[0,1]` so it combines comparably with
+/// cosine similarity. `lambda = 1.0` is pure relevance (the input order);
+/// lower values trade relevance for diversity. Returns selected indices in
+/// pick order.
+fn mmr_select(items: &[(f32, Vec<f32>)], lambda: f32, k: usize) -> Vec<usize> {
+    let n = items.len();
+    let target = k.min(n);
+    if target == 0 {
+        return Vec::new();
+    }
+    let lambda = lambda.clamp(0.0, 1.0);
+    let (mut min_r, mut max_r) = (f32::INFINITY, f32::NEG_INFINITY);
+    for (r, _) in items {
+        min_r = min_r.min(*r);
+        max_r = max_r.max(*r);
+    }
+    let span = (max_r - min_r).max(f32::EPSILON);
+    let norm_rel = |i: usize| (items[i].0 - min_r) / span;
+
+    let mut selected: Vec<usize> = Vec::with_capacity(target);
+    let mut remaining: Vec<usize> = (0..n).collect();
+    while selected.len() < target && !remaining.is_empty() {
+        let mut best_pos = 0usize;
+        let mut best_score = f32::NEG_INFINITY;
+        for (pos, &i) in remaining.iter().enumerate() {
+            let max_sim = selected
+                .iter()
+                .map(|&s| cosine_sim(&items[i].1, &items[s].1))
+                .fold(0.0f32, f32::max);
+            let score = lambda * norm_rel(i) - (1.0 - lambda) * max_sim;
+            if score > best_score {
+                best_score = score;
+                best_pos = pos;
+            }
+        }
+        selected.push(remaining.remove(best_pos));
+    }
+    selected
 }
 
 // ---------------------------------------------------------------------------
@@ -499,12 +811,7 @@ impl super::Retriever for HybridRetriever {
         NAME
     }
 
-    async fn search(
-        &self,
-        query: &str,
-        k: usize,
-        filters: &Filters,
-    ) -> Result<Vec<HybridHit>> {
+    async fn search(&self, query: &str, k: usize, filters: &Filters) -> Result<Vec<HybridHit>> {
         // The trait method has no separate at_time param; the
         // bitemporal filter rides on Filters.at_time. For T-60
         // first cut, the legacy `search()` accepts at_time
@@ -524,9 +831,76 @@ mod tests {
     use serde_json::Map;
     use tempfile::tempdir;
 
+    #[test]
+    fn scope_matches_enforces_project_plus_global() {
+        // The one predicate every read path delegates to. Locks the SPEC §2.8
+        // semantic: unscoped passes all; scoped keeps the project + untagged
+        // global, drops another project; include_global=false drops untagged.
+        let tagged = |k: &str, v: &str| {
+            let mut m = BTreeMap::new();
+            m.insert(k.to_string(), v.to_string());
+            m
+        };
+        let lm = tagged(PROJECT_PATH_TAG, "/home/lm");
+        let other = tagged(PROJECT_PATH_TAG, "/home/other");
+        let global = BTreeMap::new();
+
+        // Unscoped: everything passes.
+        assert!(scope_matches(&lm, &None));
+        assert!(scope_matches(&global, &None));
+
+        // Scoped (project + global): in-project and untagged pass, other drops.
+        let scope = Some(Scope::project_path("/home/lm"));
+        assert!(scope_matches(&lm, &scope), "in-project passes");
+        assert!(scope_matches(&global, &scope), "untagged global passes");
+        assert!(!scope_matches(&other, &scope), "another project dropped");
+
+        // include_global=false: untagged global is excluded too.
+        let strict = Some(Scope {
+            key: PROJECT_PATH_TAG.to_string(),
+            value: "/home/lm".to_string(),
+            include_global: false,
+        });
+        assert!(scope_matches(&lm, &strict));
+        assert!(!scope_matches(&global, &strict), "global excluded when off");
+    }
+
+    #[test]
+    fn mmr_select_diversifies_near_duplicates() {
+        // item0 and item1 share an embedding (near-duplicates); item2 is
+        // orthogonal. With lambda 0.5, after the top item the orthogonal one
+        // beats the near-duplicate.
+        let items = vec![
+            (1.0f32, vec![1.0, 0.0]),
+            (0.9f32, vec![1.0, 0.0]),
+            (0.5f32, vec![0.0, 1.0]),
+        ];
+        assert_eq!(mmr_select(&items, 0.5, 2), vec![0, 2]);
+    }
+
+    #[test]
+    fn mmr_select_lambda_one_is_pure_relevance() {
+        let items = vec![
+            (1.0f32, vec![1.0, 0.0]),
+            (0.9f32, vec![1.0, 0.0]),
+            (0.5f32, vec![0.0, 1.0]),
+        ];
+        // lambda 1.0 ignores diversity -> pure relevance order.
+        assert_eq!(mmr_select(&items, 1.0, 2), vec![0, 1]);
+    }
+
+    #[test]
+    fn mmr_select_edge_cases() {
+        assert!(mmr_select(&[], 0.7, 5).is_empty());
+        let one = vec![(1.0f32, vec![1.0])];
+        assert!(mmr_select(&one, 0.7, 0).is_empty());
+        assert_eq!(mmr_select(&one, 0.7, 5), vec![0]); // k > n clamps to n
+    }
+
     fn capture(text: &str) -> Event {
         Event::new(
             EventKind::Capture(CapturePayload {
+                time: None,
                 text: text.into(),
                 rewritten_text: None,
                 kind: Default::default(),
@@ -570,11 +944,20 @@ mod tests {
         // unlock it here to mirror what the production path does.
         let vec = {
             let mut emb = retriever.embedder.lock().await;
-            emb.embed(&payload.text).expect("embed test capture")
+            emb.as_mut()
+                .expect("test embedder present")
+                .embed(&payload.text)
+                .expect("embed test capture")
         };
+        // §2.8 cohesion: the vector row carries the capture's OWN tags, so the
+        // vec path filters (scope/reserved) on its own data exactly like prod.
+        let tags_json = serde_json::to_string(&payload.tags).unwrap_or_else(|_| "{}".into());
         retriever
             .vectors
-            .add(&ev.id.to_string(), &vec, &payload.text, ev.ts)
+            .as_ref()
+            .as_ref()
+            .expect("test vector store present")
+            .add(&ev.id.to_string(), &vec, &payload.text, &tags_json, ev.ts)
             .await
             .expect("add vector row");
         // lexical is also Mutex-wrapped post-T-60; unlock to mutate.
@@ -867,6 +1250,7 @@ mod tests {
         }
         Event::new(
             EventKind::Capture(CapturePayload {
+                time: None,
                 text: text.into(),
                 rewritten_text: None,
                 kind: Default::default(),
@@ -1104,7 +1488,10 @@ mod tests {
         let now = Utc::now();
         let future_ts = now + chrono::Duration::hours(1);
         let bonus = apply_recency_bonus(0.0, future_ts, now, 0.10);
-        assert!((bonus - 0.10).abs() < 1e-6, "future ts must not amplify bonus");
+        assert!(
+            (bonus - 0.10).abs() < 1e-6,
+            "future ts must not amplify bonus"
+        );
     }
 
     // ---- T-73: per-kind half-life ----------------------------------------
@@ -1209,7 +1596,9 @@ mod tests {
         assert!(
             new_pos.unwrap() < old_pos.unwrap(),
             "recency bias should rank the newer capture above the older one. hits={:?}",
-            hits.iter().map(|h| (h.event_id.clone(), h.score)).collect::<Vec<_>>(),
+            hits.iter()
+                .map(|h| (h.event_id.clone(), h.score))
+                .collect::<Vec<_>>(),
         );
     }
 
@@ -1236,9 +1625,8 @@ mod tests {
         let old_ts = new_ts - chrono::Duration::days(60);
         let mut fresh = capture("I prefer functional Rust and avoid macros");
         fresh.ts = new_ts;
-        let mut stale = capture(
-            "Vim handles split panes with C-w and avoids macros for indentation",
-        );
+        let mut stale =
+            capture("Vim handles split panes with C-w and avoids macros for indentation");
         stale.ts = old_ts;
         index_capture(&mut r, &fresh).await;
         index_capture(&mut r, &stale).await;
@@ -1249,10 +1637,7 @@ mod tests {
 
         // Pass 1: bias OFF. Record each hit's score.
         r = r.with_recency_weight(0.0);
-        let hits_off = r
-            .search("avoid macros", 10, None, &filters)
-            .await
-            .unwrap();
+        let hits_off = r.search("avoid macros", 10, None, &filters).await.unwrap();
         assert!(
             hits_off.iter().any(|h| h.event_id == fresh.id.to_string()),
             "fresh capture must surface",
@@ -1275,10 +1660,7 @@ mod tests {
         // Pass 2: bias ON. Same retriever, just flip the knob.
         let weight = 0.10f32;
         r = r.with_recency_weight(weight);
-        let hits_on = r
-            .search("avoid macros", 10, None, &filters)
-            .await
-            .unwrap();
+        let hits_on = r.search("avoid macros", 10, None, &filters).await.unwrap();
         let fresh_on = hits_on
             .iter()
             .find(|h| h.event_id == fresh.id.to_string())

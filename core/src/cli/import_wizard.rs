@@ -172,7 +172,10 @@ fn classify_conversations_json(path: &Path) -> Option<Detection> {
             format: "chatgpt".into(),
             path: path.to_path_buf(),
             confidence: Confidence::High,
-            hint: format!("parent dir name + sibling user.json in {}", parent.display()),
+            hint: format!(
+                "parent dir name + sibling user.json in {}",
+                parent.display()
+            ),
         });
     }
     if parent_is_claude && has_users_json {
@@ -291,8 +294,12 @@ fn write_output<W: Write>(
         .context("write hint line")?;
         return Ok(());
     }
-    writeln!(out, "Found {} potential memory source(s):", detections.len())
-        .context("write detections header")?;
+    writeln!(
+        out,
+        "Found {} potential memory source(s):",
+        detections.len()
+    )
+    .context("write detections header")?;
     for d in detections {
         let conf = match d.confidence {
             Confidence::High => "HIGH",
@@ -489,7 +496,10 @@ mod tests {
         assert_eq!(dets[0].confidence, Confidence::High);
         let applied = run_apply(&home, &dets);
         assert_eq!(applied.len(), 1);
-        let stats = applied[0].stats.as_ref().expect("expected import to succeed");
+        let stats = applied[0]
+            .stats
+            .as_ref()
+            .expect("expected import to succeed");
         assert_eq!(stats.format, "chatgpt");
         // 1 marker + 1 capture.
         assert!(stats.events_appended >= 2);

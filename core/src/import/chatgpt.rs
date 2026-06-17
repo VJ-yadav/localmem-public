@@ -22,7 +22,7 @@
 //!   - `parts` is an array of strings. We join with "\n\n" preserving
 //!     the original chunking so the source-text round-trip is honest.
 
-use super::{ingest_messages, ImportStats, ImportedMessage};
+use super::{ingest_parsed, ImportStats, ImportedMessage, ParsedImport};
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
 use serde::Deserialize;
@@ -73,7 +73,14 @@ struct Content {
 /// Parse a `conversations.json` file and ingest every user message.
 ///
 /// Returns `ImportStats` with `format = "chatgpt"`.
+/// Ingest a ChatGPT export into `home` (parse + dedup + append).
 pub fn import_chatgpt(home: &Path, json_path: &Path) -> Result<ImportStats> {
+    ingest_parsed(home, "chatgpt", parse_chatgpt(json_path)?)
+}
+
+/// Parse a ChatGPT `conversations.json` into normalized messages without
+/// writing anything (so the CLI can `--dry-run` / preview).
+pub fn parse_chatgpt(json_path: &Path) -> Result<ParsedImport> {
     let raw = std::fs::read_to_string(json_path)
         .with_context(|| format!("read ChatGPT export at {}", json_path.display()))?;
     let file: ConversationFile = serde_json::from_str(&raw).context("parse conversations.json")?;
@@ -129,6 +136,7 @@ pub fn import_chatgpt(home: &Path, json_path: &Path) -> Result<ImportStats> {
                 text,
                 timestamp: ts,
                 conversation_title: title.clone(),
+                tags: Default::default(),
             });
         }
         // Sort within conversation by timestamp; concatenate across
@@ -141,7 +149,11 @@ pub fn import_chatgpt(home: &Path, json_path: &Path) -> Result<ImportStats> {
     // interleaved; bitemporal correctness wants strictly ascending ts.
     messages.sort_by_key(|m| m.timestamp);
 
-    ingest_messages(home, "chatgpt", messages, conversations, skipped)
+    Ok(ParsedImport {
+        messages,
+        conversations_seen: conversations,
+        messages_skipped: skipped,
+    })
 }
 
 fn epoch_to_datetime(secs: f64) -> Result<DateTime<Utc>> {

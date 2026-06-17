@@ -32,12 +32,79 @@ pub struct Config {
     pub home: HomeSection,
     pub embedder: EmbedderSection,
     pub extractor: ExtractorSection,
+    pub understanding: UnderstandingSection,
     pub policy: PolicySection,
     pub rewriter: RewriterSection,
     pub retriever: RetrieverSection,
+    pub indexing: IndexingSection,
+    pub north_star: NorthStarSection,
     pub server: ServerSection,
     pub sync: SyncSection,
     pub telemetry: TelemetrySection,
+}
+
+/// North Star token accounting (SPEC-intelligence-v2 §2.9). Pricing IS config
+/// (it changes per provider and over time), so it lives here rather than in
+/// code. `accounting_model` is the default model the token cost is reported
+/// against; `pricing_per_1m` maps a model name (matched longest-substring) to
+/// its INPUT price in USD per 1,000,000 tokens; `baseline_multiplier` is the
+/// estimated factor by which dumping relevant raw history would cost more than
+/// localmem's precise context, used for the (clearly-labeled) savings headline
+/// until the A/B harness (P6) supplies a measured number.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(default)]
+pub struct NorthStarSection {
+    pub accounting_model: String,
+    pub pricing_per_1m: std::collections::BTreeMap<String, f64>,
+    pub baseline_multiplier: f64,
+}
+impl Default for NorthStarSection {
+    fn default() -> Self {
+        // Approximate public input prices (USD / 1M tokens), 2026. Overridable.
+        let mut p = std::collections::BTreeMap::new();
+        for (k, v) in [
+            ("gpt-4o-mini", 0.15),
+            ("gpt-4o", 2.50),
+            ("gpt-4.1", 2.00),
+            ("gpt-4-turbo", 10.0),
+            ("gpt-4", 30.0),
+            ("gpt-3.5", 0.50),
+            ("o1", 15.0),
+            ("o3", 2.00),
+            ("claude-opus", 15.0),
+            ("claude-sonnet", 3.00),
+            ("claude-haiku", 0.80),
+            // Local models cost nothing per token (privacy + free is the point).
+            ("llama", 0.0),
+            ("qwen", 0.0),
+        ] {
+            p.insert(k.to_string(), v);
+        }
+        Self {
+            accounting_model: "gpt-4o".to_string(),
+            pricing_per_1m: p,
+            baseline_multiplier: 10.0,
+        }
+    }
+}
+
+impl NorthStarSection {
+    /// USD input price per token for `model` (longest-substring match against
+    /// the configured table). `None` when no entry matches, so callers can omit
+    /// a dollar figure rather than invent one.
+    pub fn price_per_token(&self, model: &str) -> Option<f64> {
+        let m = model.to_ascii_lowercase();
+        self.pricing_per_1m
+            .iter()
+            .filter(|(k, _)| m.contains(k.as_str()))
+            .max_by_key(|(k, _)| k.len())
+            .map(|(_, v)| *v / 1_000_000.0)
+    }
+
+    /// USD cost of `tokens` under `model`, or `None` if the model is unpriced.
+    pub fn cost_usd(&self, tokens: usize, model: &str) -> Option<f64> {
+        self.price_per_token(model).map(|p| p * tokens as f64)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -94,6 +161,12 @@ pub struct ExtractorSection {
     /// match the rewriter section's default model so a user who set
     /// both points at the same Ollama instance.
     pub llm_model: String,
+    /// HTTP endpoint for the local Ollama server used by the `local-llm`
+    /// extractor. Loopback by default, so it does not violate the no-network
+    /// guarantee: the extractor is opt-in (only when `"local-llm"` is in
+    /// `plugins`) and the registry degrades to the rules path when Ollama is
+    /// unreachable.
+    pub ollama_endpoint: String,
     /// HTTPS endpoint for the `hosted` extractor. Empty until T-68
     /// publishes the production URL; the stub echoes it back in its
     /// bail message either way.
@@ -113,8 +186,58 @@ impl Default for ExtractorSection {
         Self {
             plugins: vec!["rules".to_string()],
             llm_model: "llama3.2:3b".to_string(),
+            ollama_endpoint: "http://localhost:11434".to_string(),
             hosted_endpoint: String::new(),
             custom_extractors_dir: "policies/extractors".to_string(),
+        }
+    }
+}
+
+/// Layer 2 understanding worker (SPEC-unified-memory-layer 7c). When `enabled`,
+/// the server spawns an async worker that decomposes each committed capture via
+/// a local LLM (summary + intent + entities + richer facts) OFF the write path.
+/// Disabled by default so a fresh install does no LLM work and needs no model:
+/// raw capture + search stay fully functional with zero inference (MOAT #4).
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(default)]
+pub struct UnderstandingSection {
+    /// Opt-in switch. `false` keeps the v0.2/v0.3 behavior exactly (no worker,
+    /// no LLM, no queue). The recommended local path is `true` + a running
+    /// Ollama; cloud inference (content leaves the machine) is a separate
+    /// explicit opt-in tracked elsewhere, never auto-enabled here.
+    pub enabled: bool,
+    /// Ollama model tag the worker decomposes with. Defaults to the same model
+    /// the extractor/rewriter use so one Ollama instance serves all paths.
+    pub model: String,
+    /// Loopback Ollama endpoint. Local by default, so enabling understanding
+    /// never violates the no-network guarantee.
+    pub ollama_endpoint: String,
+    /// Canonical subject that facts ABOUT THE USER are attributed to, so the
+    /// persona synthesis can select `subject == user_subject`. The persona
+    /// DIMENSIONS live in policy/profile config, not here; this is only the
+    /// attribution key, kept configurable rather than hardcoded.
+    pub user_subject: String,
+    /// Decomposition backend (intelligence v2, P1). `ollama` (default, local,
+    /// private, offline) | `openai` | `anthropic`. A remote provider sends
+    /// capture text off-machine using the user's OWN key (named by
+    /// `api_key_env`) — an explicit per-user opt-in (MOAT #5), not a default.
+    /// Same `Decomposer` interface for all; on remote failure the worker falls
+    /// back to local so understanding never hard-fails on a network blip.
+    pub provider: String,
+    /// Name of the ENV VAR holding the API key for a remote `provider` (e.g.
+    /// `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`) — never the key itself, so the
+    /// config stays safe to commit. Empty for the local Ollama default.
+    pub api_key_env: String,
+}
+impl Default for UnderstandingSection {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            model: "llama3.2:3b".to_string(),
+            ollama_endpoint: "http://localhost:11434".to_string(),
+            user_subject: "user".to_string(),
+            provider: "ollama".to_string(),
+            api_key_env: String::new(),
         }
     }
 }
@@ -153,6 +276,24 @@ pub struct RetrieverSection {
     /// fact=90d, preference=180d, decision=365d, constraint=180d,
     /// todo=14d, note=30d.
     pub decay_half_life: std::collections::BTreeMap<String, String>,
+    /// Phase 2 / T-74: Maximal Marginal Relevance diversity. When set, the
+    /// hybrid retriever re-ranks its candidate set to balance relevance against
+    /// diversity so the top-k are not near-duplicates. The value is the MMR
+    /// `lambda` in `[0.0, 1.0]`: `1.0` is pure relevance (no diversification),
+    /// lower values trade relevance for diversity (`0.7` is a sensible start).
+    /// `None` disables MMR entirely, preserving exact prior ranking. Defaults
+    /// to `0.7`: validated by the private eval (LongMemEval v0.3.2 scored 75%
+    /// with rerank+MMR on at lambda 0.7, up from the 56% rerank-off baseline).
+    pub mmr_lambda: Option<f32>,
+    /// Phase 2 / T-74b: enable the cross-encoder reranker. When `true`, the
+    /// hybrid retriever rescores the top-N candidates with a local ONNX
+    /// cross-encoder (true query-doc relevance) before MMR/truncate. Requires a
+    /// reranker model at `<home>/models/reranker/` (provisioned by `localmem
+    /// setup` / `fetch-model reranker`); if absent, search degrades to the
+    /// first-stage ranking and logs loudly (never silently). Defaults to `true`:
+    /// the precision lift it gives is what cleared the 75% eval gate, so the
+    /// product ships with its North Star promise on by default.
+    pub rerank: bool,
 }
 impl Default for RetrieverSection {
     fn default() -> Self {
@@ -167,6 +308,8 @@ impl Default for RetrieverSection {
             recency_weight: crate::retriever::DEFAULT_RECENCY_WEIGHT,
             plugins: vec!["hybrid".to_string()],
             decay_half_life: decay,
+            mmr_lambda: Some(0.7),
+            rerank: true,
         }
     }
 }
@@ -212,6 +355,69 @@ fn parse_duration_days(s: &str) -> Option<f64> {
         "w" => n * 7.0,
         _ => return None,
     })
+}
+
+/// Batch sizing for the rebuild paths (`replay`, `reindex`) that re-embed
+/// every capture. Both knobs default to `0`, meaning "auto-tune from the
+/// hardware": a low-power laptop and a 16-core server should not use the same
+/// batch sizes. `embed_batch` bounds peak inference memory (BGE does ONE
+/// forward pass per batch, so a large batch is a large tensor); `flush_rows`
+/// bounds how many vector rows accumulate before a single LanceDB `add_many`
+/// transaction (fewer, larger transactions = fewer fragments = less store
+/// bloat, at the cost of holding more rows in RAM). Set an explicit non-zero
+/// value to override the auto-tuned default on either knob.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(default)]
+pub struct IndexingSection {
+    pub embed_batch: usize,
+    pub flush_rows: usize,
+}
+impl Default for IndexingSection {
+    fn default() -> Self {
+        Self {
+            embed_batch: 0,
+            flush_rows: 0,
+        }
+    }
+}
+
+/// Effective batch sizes after auto-tuning, with the core count that drove the
+/// decision (logged at rebuild start so the choice is visible, not magic).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ResolvedIndexing {
+    pub embed_batch: usize,
+    pub flush_rows: usize,
+    pub cores: usize,
+}
+
+impl IndexingSection {
+    /// Resolve the effective batch sizes. A configured non-zero value wins;
+    /// otherwise auto-tune from the available parallelism (a dependency-free
+    /// proxy for machine class). `embed_batch` scales with cores so a beefier
+    /// box embeds more per forward pass; `flush_rows` is a multiple of it,
+    /// bounded so even a 1-core box flushes in reasonably large transactions
+    /// and a 64-core box does not buffer the whole log before its first write.
+    pub fn resolved(&self) -> ResolvedIndexing {
+        let cores = std::thread::available_parallelism()
+            .map(|n| n.get())
+            .unwrap_or(4);
+        let embed_batch = if self.embed_batch > 0 {
+            self.embed_batch
+        } else {
+            // 2-core laptop -> 8, 8-core -> 32, 16-core -> 64 (clamped).
+            (cores * 4).clamp(8, 64)
+        };
+        let flush_rows = if self.flush_rows > 0 {
+            self.flush_rows
+        } else {
+            (embed_batch * 32).clamp(256, 4096)
+        };
+        ResolvedIndexing {
+            embed_batch,
+            flush_rows,
+            cores,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -348,6 +554,32 @@ impl Config {
         if let Ok(s) = std::env::var("LOCALMEM_EXTRACTOR_LLM_MODEL") {
             if !s.is_empty() {
                 self.extractor.llm_model = s;
+            }
+        }
+        if let Ok(s) = std::env::var("LOCALMEM_INDEXING_EMBED_BATCH") {
+            if let Ok(parsed) = s.parse::<usize>() {
+                self.indexing.embed_batch = parsed;
+            }
+        }
+        if let Ok(s) = std::env::var("LOCALMEM_INDEXING_FLUSH_ROWS") {
+            if let Ok(parsed) = s.parse::<usize>() {
+                self.indexing.flush_rows = parsed;
+            }
+        }
+        // Retrieval-quality flags as env overrides so a multi-home runner (a
+        // benchmark spawning per-conversation homes that each load default
+        // config) can turn the cross-encoder reranker + MMR on without writing a
+        // config.toml into every home.
+        if let Ok(s) = std::env::var("LOCALMEM_RETRIEVER_RERANK") {
+            match s.trim().to_ascii_lowercase().as_str() {
+                "1" | "true" | "yes" | "on" => self.retriever.rerank = true,
+                "0" | "false" | "no" | "off" => self.retriever.rerank = false,
+                _ => {}
+            }
+        }
+        if let Ok(s) = std::env::var("LOCALMEM_RETRIEVER_MMR_LAMBDA") {
+            if let Ok(v) = s.trim().parse::<f32>() {
+                self.retriever.mmr_lambda = Some(v);
             }
         }
         self
@@ -585,10 +817,7 @@ llm_model = "qwen2.5:7b"
         )
         .unwrap();
         // CSV with whitespace around each token; we tolerate.
-        std::env::set_var(
-            "LOCALMEM_EXTRACTOR_PLUGINS",
-            "rules, local-llm , hosted",
-        );
+        std::env::set_var("LOCALMEM_EXTRACTOR_PLUGINS", "rules, local-llm , hosted");
         let cfg = Config::load(tmp.path()).unwrap();
         std::env::remove_var("LOCALMEM_EXTRACTOR_PLUGINS");
         assert_eq!(
@@ -656,7 +885,8 @@ llm_model = "qwen2.5:7b"
         let mut r = RetrieverSection::default();
         r.decay_half_life.clear();
         r.decay_half_life.insert("fact".into(), "90d".into());
-        r.decay_half_life.insert("preference".into(), "not-a-duration".into());
+        r.decay_half_life
+            .insert("preference".into(), "not-a-duration".into());
         r.decay_half_life.insert("decision".into(), "".into());
         r.decay_half_life.insert("todo".into(), "-7d".into());
         let m = r.decay_half_lives_in_days();
@@ -676,13 +906,78 @@ llm_model = "qwen2.5:7b"
         .unwrap();
         let cfg = Config::load(tmp.path()).unwrap();
         assert_eq!(
-            cfg.retriever.decay_half_life.get("fact").map(String::as_str),
+            cfg.retriever
+                .decay_half_life
+                .get("fact")
+                .map(String::as_str),
             Some("45d")
         );
         assert_eq!(
-            cfg.retriever.decay_half_life.get("todo").map(String::as_str),
+            cfg.retriever
+                .decay_half_life
+                .get("todo")
+                .map(String::as_str),
             Some("7d")
         );
+    }
+
+    // ---- [indexing] hardware-aware batch sizing ---------------------------
+
+    #[test]
+    fn indexing_section_defaults_to_auto() {
+        let tmp = tempdir().unwrap();
+        let cfg = Config::load(tmp.path()).unwrap();
+        assert_eq!(cfg.indexing.embed_batch, 0, "0 means auto-tune");
+        assert_eq!(cfg.indexing.flush_rows, 0);
+    }
+
+    #[test]
+    fn indexing_auto_resolves_to_sane_bounds() {
+        // Auto-tune must stay within the documented clamps regardless of how
+        // many cores the test host reports, so the rebuild paths never pick a
+        // pathological batch size on either a tiny or a huge machine.
+        let r = IndexingSection::default().resolved();
+        assert!(
+            (8..=64).contains(&r.embed_batch),
+            "embed_batch {} out of [8,64]",
+            r.embed_batch
+        );
+        assert!(
+            (256..=4096).contains(&r.flush_rows),
+            "flush_rows {} out of [256,4096]",
+            r.flush_rows
+        );
+        assert!(r.cores >= 1);
+    }
+
+    #[test]
+    fn indexing_explicit_values_win_over_auto() {
+        let section = IndexingSection {
+            embed_batch: 13,
+            flush_rows: 999,
+        };
+        let r = section.resolved();
+        assert_eq!(r.embed_batch, 13);
+        assert_eq!(r.flush_rows, 999);
+    }
+
+    #[test]
+    fn loads_indexing_from_disk_and_env_overrides() {
+        let tmp = tempdir().unwrap();
+        std::fs::write(
+            tmp.path().join(CONFIG_FILE),
+            "[indexing]\nembed_batch = 16\nflush_rows = 512\n",
+        )
+        .unwrap();
+        let cfg = Config::load(tmp.path()).unwrap();
+        assert_eq!(cfg.indexing.embed_batch, 16);
+        assert_eq!(cfg.indexing.flush_rows, 512);
+
+        std::env::set_var("LOCALMEM_INDEXING_EMBED_BATCH", "48");
+        let cfg = Config::load(tmp.path()).unwrap();
+        std::env::remove_var("LOCALMEM_INDEXING_EMBED_BATCH");
+        assert_eq!(cfg.indexing.embed_batch, 48);
+        assert_eq!(cfg.indexing.flush_rows, 512);
     }
 
     #[test]

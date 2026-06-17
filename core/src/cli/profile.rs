@@ -52,6 +52,35 @@ pub fn run_with_kind(
     as_json: bool,
 ) -> Result<()> {
     let home = resolve_home(home)?;
+
+    // Route through the running server when one is up: the facts DuckDB lock is
+    // exclusive, so an in-process read fails while `serve` holds it. The /profile
+    // endpoint covers the no-kind case (a kind filter has no server param, so
+    // those stay in-process). The server synthesis omits the capture-todos
+    // checklist — a minor difference only while serving.
+    if kind.is_none() {
+        let mut body = serde_json::json!({ "tags": tags });
+        if let Some(s) = scope {
+            body["scope"] = serde_json::Value::String(s.to_string());
+        }
+        if let Some(v) = crate::cli::server_post(&home, "/profile", body) {
+            let out = ProfileOutput {
+                profile_md: v
+                    .get("profile_md")
+                    .and_then(|x| x.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+                generated_at: v
+                    .get("generated_at")
+                    .and_then(|x| x.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+                fact_count: v.get("fact_count").and_then(|x| x.as_u64()).unwrap_or(0) as usize,
+            };
+            return emit(&out, as_json);
+        }
+    }
+
     let store = FactsStore::open(&home).context("open facts store")?;
     let tag_filter = if tags.is_empty() { None } else { Some(&tags) };
     // Default visibility per SPEC_V0_2: profile is a synthesis path,
@@ -146,14 +175,13 @@ fn load_todos(
                 continue;
             }
         }
-        if !tags.is_empty()
-            && !crate::tag_match::matches(&payload.tags, tags)
-        {
+        if !tags.is_empty() && !crate::tag_match::matches(&payload.tags, tags) {
             continue;
         }
         let meta = lex
             .meta_for(&id_str)
-            .context("meta_for todo capture")?;
+            .context("meta_for todo capture")?
+            .unwrap_or_default();
         // Fall back to the raw text when the rewriter produced
         // nothing — same display rule the lex layer follows.
         let text = payload.indexable_text().to_string();
@@ -309,22 +337,16 @@ fn synthesize_profile_with_todos(
 /// dropped any tail. Counts chars, not bytes, so multi-byte text
 /// renders without splitting a codepoint.
 fn first_chars(s: &str, n: usize) -> String {
-    let mut count = 0;
-    let mut end = s.len();
-    for (i, _) in s.char_indices() {
-        if count == n {
-            end = i;
-            break;
+    // The byte offset of the (n+1)th char is exactly where the first n chars
+    // end. `None` means the string has n chars or fewer, so it fits whole.
+    match s.char_indices().nth(n) {
+        Some((end, _)) => {
+            let mut truncated = String::with_capacity(end + 1);
+            truncated.push_str(&s[..end]);
+            truncated.push('…');
+            truncated
         }
-        count += 1;
-    }
-    if end < s.len() {
-        let mut truncated = String::with_capacity(end + 1);
-        truncated.push_str(&s[..end]);
-        truncated.push('…');
-        truncated
-    } else {
-        s.to_string()
+        None => s.to_string(),
     }
 }
 

@@ -16,7 +16,7 @@ use crate::lexical::{LexicalIndex, LexicalResultExt};
 use crate::retriever::{Filters, HybridHit, HybridRetriever};
 use crate::vectors::VectorStore;
 use anyhow::{Context, Result};
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, SecondsFormat, Utc};
 use clap::ValueEnum;
 use serde::Serialize;
 use std::collections::BTreeMap;
@@ -58,15 +58,24 @@ pub struct DisplayHit {
     pub score: f32,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub sources: Vec<&'static str>,
+    /// Valid-time of the hit (when the memory happened, RFC3339), surfaced so
+    /// the CLI exposes the temporal envelope the write/import paths now record
+    /// (T-113). `None` when the source carried no instant.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub valid_from: Option<String>,
 }
 
 impl DisplayHit {
     fn from_lexical(h: crate::lexical::LexicalHit) -> Self {
+        // The lexical index stores the capture's valid-time (effective capture
+        // instant) as `ts`, so it IS the valid_from to surface.
+        let valid_from = Some(h.ts.to_rfc3339_opts(SecondsFormat::Millis, true));
         Self {
             event_id: h.event_id,
             snippet: h.snippet,
             score: h.score,
             sources: Vec::new(),
+            valid_from,
         }
     }
 
@@ -76,6 +85,9 @@ impl DisplayHit {
             snippet: h.content,
             score: h.score,
             sources: h.sources,
+            valid_from: h
+                .valid_from
+                .map(|t| t.to_rfc3339_opts(SecondsFormat::Millis, true)),
         }
     }
 }
@@ -93,6 +105,10 @@ impl DisplayHit {
 /// `tags` is a subset-match filter (T-51). An empty map disables tag
 /// filtering and matches v0.1 behavior; a non-empty map applies the
 /// AND-of-pairs predicate to every retrieval path.
+// This is a CLI dispatch boundary: every parameter is a distinct `localmem
+// search` flag forwarded straight from clap. Bundling them into a struct would
+// add indirection without cohesion, so the arg count is inherent, not a smell.
+#[allow(clippy::too_many_arguments)]
 pub async fn run(
     home: Option<&str>,
     query: &str,
@@ -100,11 +116,24 @@ pub async fn run(
     mode: Mode,
     at_time: Option<DateTime<Utc>>,
     tags: BTreeMap<String, String>,
+    project: Option<String>,
     kind_filter: Option<crate::kind::Kind>,
     done_filter: Option<bool>,
     as_json: bool,
 ) -> Result<()> {
     let home = resolve_home(home)?;
+    // SPEC §2.8: `--project <label>` scopes to that project plus user-common
+    // (global) memory, never another project. The collision-proof `project_path`
+    // is what the MCP server uses; the CLI accepts the readable `project` label.
+    let scope =
+        project
+            .as_ref()
+            .filter(|p| !p.trim().is_empty())
+            .map(|p| crate::retriever::Scope {
+                key: "project".to_string(),
+                value: p.clone(),
+                include_global: true,
+            });
     let tag_filter = if tags.is_empty() { None } else { Some(&tags) };
     // Search is not the audit path. Per SPEC_V0_2 (T-51c),
     // `visibility=private` captures stay hidden; retention TTL
@@ -130,7 +159,14 @@ pub async fn run(
                 .context("run lexical search")?;
             lex_hits
                 .into_iter()
-                .filter(|h| crate::reserved_tags::is_visible(&h.tags, h.ts, now, visibility))
+                .filter(|h| {
+                    crate::reserved_tags::is_visible(&h.tags, h.ts, now, visibility)
+                        && scope.as_ref().map_or(true, |s| {
+                            h.tags
+                                .get(&s.key)
+                                .map_or(s.include_global, |v| v == &s.value)
+                        })
+                })
                 .map(DisplayHit::from_lexical)
                 .collect()
         }
@@ -174,7 +210,14 @@ pub async fn run(
                         .context("run lexical search (hybrid degraded; embedder unavailable)")?;
                     lex_hits
                         .into_iter()
-                        .filter(|h| crate::reserved_tags::is_visible(&h.tags, h.ts, now, visibility))
+                        .filter(|h| {
+                            crate::reserved_tags::is_visible(&h.tags, h.ts, now, visibility)
+                                && scope.as_ref().map_or(true, |s| {
+                                    h.tags
+                                        .get(&s.key)
+                                        .map_or(s.include_global, |v| v == &s.value)
+                                })
+                        })
                         .map(DisplayHit::from_lexical)
                         .collect()
                 }
@@ -200,11 +243,23 @@ pub async fn run(
                     let retriever_cfg = crate::config::Config::load(&home)
                         .unwrap_or_default()
                         .retriever;
-                    let retriever =
-                        HybridRetriever::new(embedder, vectors, lexical, facts)
-                            .with_recency_weight(retriever_cfg.recency_weight)
-                            .with_decay_half_lives(retriever_cfg.decay_half_lives_in_days());
-                    let filters = Filters::with_tags(tags);
+                    // Phase 2 / T-74b: load the cross-encoder reranker when
+                    // enabled and present; degrade to no-rerank otherwise.
+                    let reranker = if retriever_cfg.rerank {
+                        std::sync::Arc::new(tokio::sync::Mutex::new(
+                            crate::rerank::Reranker::load(home.join("models").join("reranker"))
+                                .ok(),
+                        ))
+                    } else {
+                        std::sync::Arc::new(tokio::sync::Mutex::new(None))
+                    };
+                    let retriever = HybridRetriever::new(embedder, vectors, lexical, facts)
+                        .with_recency_weight(retriever_cfg.recency_weight)
+                        .with_decay_half_lives(retriever_cfg.decay_half_lives_in_days())
+                        .with_mmr_lambda(retriever_cfg.mmr_lambda)
+                        .with_reranker(reranker);
+                    let mut filters = Filters::with_tags(tags);
+                    filters.scope = scope.clone();
                     let hybrid_hits = retriever
                         .search(query, k, at_time, &filters)
                         .await
@@ -223,13 +278,14 @@ pub async fn run(
     // `k`). When neither filter is set we skip the lookup entirely
     // so the common search path stays untouched.
     let hits = if kind_filter.is_some() || done_filter.is_some() {
-        let lex =
-            LexicalIndex::open_reader_only(&home).lex_context("open lexical index for meta filter")?;
+        let lex = LexicalIndex::open_reader_only(&home)
+            .lex_context("open lexical index for meta filter")?;
         let mut kept: Vec<DisplayHit> = Vec::with_capacity(hits.len());
         for h in hits.into_iter() {
             let meta = lex
                 .meta_for(&h.event_id)
-                .context("meta_for hit during kind/done filter")?;
+                .context("meta_for hit during kind/done filter")?
+                .unwrap_or_default();
             if let Some(k) = &kind_filter {
                 let hit_kind = crate::kind::Kind::from(meta.kind.clone());
                 if &hit_kind != k {
@@ -312,13 +368,20 @@ fn write_human<W: Write>(out: &mut W, query: &str, hits: &[DisplayHit]) -> Resul
         return Ok(());
     }
     for (i, h) in hits.iter().enumerate() {
+        // Append valid_from when present so the temporal envelope is visible at
+        // a glance; omit it cleanly for sources that carry no instant.
+        let when = match &h.valid_from {
+            Some(vf) => format!(" valid_from={vf}"),
+            None => String::new(),
+        };
         writeln!(
             out,
-            "[{}] {} score={:.3} id={}",
+            "[{}] {} score={:.3} id={}{}",
             i + 1,
             h.snippet,
             h.score,
             h.event_id,
+            when,
         )
         .context("write result line")?;
     }
@@ -357,6 +420,7 @@ mod tests {
     fn capture(text: &str) -> Event {
         Event::new(
             EventKind::Capture(CapturePayload {
+                time: None,
                 text: text.into(),
                 rewritten_text: None,
                 kind: Default::default(),
@@ -424,12 +488,14 @@ mod tests {
                 snippet: "first hit".into(),
                 score: 1.25,
                 sources: vec![],
+                valid_from: Some("2023-01-15T10:00:00.000Z".into()),
             },
             DisplayHit {
                 event_id: "01HX2".into(),
                 snippet: "second hit".into(),
                 score: 0.5,
                 sources: vec!["lex", "vec"],
+                valid_from: None,
             },
         ];
         let mut buf = Vec::new();
@@ -440,6 +506,9 @@ mod tests {
         assert!(s.contains("id=01HX1"));
         assert!(s.contains("[2] second hit"));
         assert!(s.contains("id=01HX2"));
+        // valid_from is appended when present and omitted otherwise.
+        assert!(s.contains("valid_from=2023-01-15T10:00:00.000Z"));
+        assert!(!s.contains("[2] second hit score=0.500 id=01HX2 valid_from"));
     }
 
     #[test]
@@ -449,6 +518,7 @@ mod tests {
             snippet: "hit".into(),
             score: 0.7,
             sources: vec!["lex", "vec"],
+            valid_from: None,
         }];
         let mut buf = Vec::new();
         write_output(&mut buf, "q", Mode::Hybrid, &hits, true).unwrap();
@@ -473,6 +543,7 @@ mod tests {
             snippet: "hit".into(),
             score: 0.7,
             sources: vec![],
+            valid_from: None,
         }];
         let mut buf = Vec::new();
         write_output(&mut buf, "q", Mode::Lex, &hits, true).unwrap();
@@ -505,6 +576,7 @@ mod tests {
             Mode::Lex,
             None,
             BTreeMap::new(),
+            None,
             None,
             None,
             /* as_json = */ true,
@@ -545,6 +617,7 @@ mod tests {
             filter,
             None,
             None,
+            None,
             true,
         )
         .await
@@ -572,6 +645,7 @@ mod tests {
             BTreeMap::new(),
             None,
             None,
+            None,
             false,
         )
         .await;
@@ -597,6 +671,7 @@ mod tests {
             Mode::Vec,
             None,
             BTreeMap::new(),
+            None,
             None,
             None,
             false,

@@ -62,11 +62,7 @@ pub trait Extractor: Send + Sync {
     /// the normal "nothing matched" case; an `Err` means the extractor
     /// itself failed (network down, model unloaded). The registry
     /// degrades gracefully on per-extractor errors.
-    async fn extract(
-        &self,
-        text: &str,
-        kind_hint: Option<&Kind>,
-    ) -> Result<Vec<ExtractedFact>>;
+    async fn extract(&self, text: &str, kind_hint: Option<&Kind>) -> Result<Vec<ExtractedFact>>;
 }
 
 /// Composes multiple [`Extractor`] impls. Runs them in parallel via
@@ -387,10 +383,7 @@ mod tests {
         let reg = ExtractorRegistry::rules_only();
         assert_eq!(reg.len(), 1);
         assert_eq!(reg.names(), vec!["rules"]);
-        let out = reg
-            .extract("I prefer functional Rust", None)
-            .await
-            .unwrap();
+        let out = reg.extract("I prefer functional Rust", None).await.unwrap();
         assert_eq!(out.len(), 1);
         assert_eq!(out[0].predicate, "prefers");
     }
@@ -406,7 +399,10 @@ mod tests {
         let err = ExtractorRegistry::from_config(&cfg).unwrap_err();
         let msg = format!("{err:#}");
         assert!(msg.contains("nope"), "error must name the bad entry: {msg}");
-        assert!(msg.contains("rules"), "error must list accepted names: {msg}");
+        assert!(
+            msg.contains("rules"),
+            "error must list accepted names: {msg}"
+        );
     }
 
     #[test]
@@ -484,7 +480,11 @@ patterns:
         // YAML doesn't because the phrasing isn't `My favourite
         // language: ...`).
         let out_rules = reg.extract("I prefer functional Rust", None).await.unwrap();
-        assert_eq!(out_rules.len(), 1, "expected rules-only fact, got {out_rules:?}");
+        assert_eq!(
+            out_rules.len(),
+            1,
+            "expected rules-only fact, got {out_rules:?}"
+        );
         assert_eq!(out_rules[0].predicate, "prefers");
 
         // YAML-only input: only yaml fires. The rules extractor's
@@ -559,7 +559,10 @@ patterns:
         let cfg = crate::config::ExtractorSection::default();
         let err = ExtractorRegistry::from_config_with_home(&cfg, tmp.path()).unwrap_err();
         let msg = format!("{err:#}");
-        assert!(msg.contains("broken.yaml"), "error must name the file: {msg}");
+        assert!(
+            msg.contains("broken.yaml"),
+            "error must name the file: {msg}"
+        );
     }
 
     #[test]

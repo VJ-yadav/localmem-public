@@ -128,6 +128,7 @@ pub async fn run(
     source: Option<&str>,
     tags: BTreeMap<String, String>,
     kind: crate::kind::Kind,
+    as_of: Option<&str>,
     as_json: bool,
 ) -> Result<()> {
     let home = resolve_home(home)?;
@@ -137,17 +138,28 @@ pub async fn run(
     }
     let source_app = source.unwrap_or("cli");
 
+    // Parse --as-of once here so a malformed value fails fast and identically
+    // on both the remote and the in-process path.
+    let as_of_instant = as_of
+        .map(|s| {
+            chrono::DateTime::parse_from_rfc3339(s)
+                .map(|dt| dt.with_timezone(&Utc))
+                .with_context(|| format!("--as-of must be RFC3339, got {s:?}"))
+        })
+        .transpose()?;
+
     // Resolve server addr: config -> env override -> default. This mirrors
     // the resolution order `localmem serve` uses, so the CLI and server
     // agree on where to connect by default.
     let cfg = crate::config::Config::load(&home).context("load config")?;
     let server_addr = cfg.server.addr.clone();
-    let out =
-        if let Some(remote) = try_post_write(&server_addr, &text, source_app, &tags, &kind).await {
-            remote
-        } else {
-            write_capture(&home, &text, source_app, tags, kind).await?
-        };
+    let out = if let Some(remote) =
+        try_post_write(&server_addr, &text, source_app, &tags, &kind, as_of_instant).await
+    {
+        remote
+    } else {
+        write_capture_at(&home, &text, source_app, tags, kind, as_of_instant).await?
+    };
     emit(&out, as_json)
 }
 
@@ -160,6 +172,7 @@ async fn try_post_write(
     source: &str,
     tags: &BTreeMap<String, String>,
     kind: &crate::kind::Kind,
+    as_of: Option<chrono::DateTime<Utc>>,
 ) -> Option<WriteOutput> {
     let base = format!("http://{addr}");
     let client = std::sync::Arc::new(
@@ -203,6 +216,12 @@ async fn try_post_write(
             .expect("body is object")
             .insert("kind".into(), Value::String(kind.as_str().to_string()));
     }
+    if let Some(instant) = as_of {
+        body.as_object_mut().expect("body is object").insert(
+            "as_of".into(),
+            Value::String(instant.to_rfc3339_opts(chrono::SecondsFormat::Millis, true)),
+        );
+    }
     let client_post = std::sync::Arc::clone(&client);
     let base_post = base;
     let resp_text = tokio::task::spawn_blocking(move || {
@@ -233,12 +252,29 @@ async fn try_post_write(
 
 /// Core write pipeline. Public for tests and (eventually) the HTTP
 /// `/write` handler so the CLI and server share one implementation.
+/// Stamps the capture's valid-time to now; use [`write_capture_at`] to
+/// record a memory that happened at a different instant.
 pub async fn write_capture(
     home: &Path,
     text: &str,
     source_app: &str,
     tags: BTreeMap<String, String>,
     kind: crate::kind::Kind,
+) -> Result<WriteOutput> {
+    write_capture_at(home, text, source_app, tags, kind, None).await
+}
+
+/// Like [`write_capture`] but pins the capture's valid-time (the temporal
+/// envelope) to `as_of` when given. `None` stamps now. This is the in-process
+/// twin of the server `/write` `as_of` field, so the CLI and HTTP paths produce
+/// an identical event for the same input.
+pub async fn write_capture_at(
+    home: &Path,
+    text: &str,
+    source_app: &str,
+    tags: BTreeMap<String, String>,
+    kind: crate::kind::Kind,
+    as_of: Option<chrono::DateTime<Utc>>,
 ) -> Result<WriteOutput> {
     let event_log = EventLog::open(home).context("open event log")?;
 
@@ -263,6 +299,10 @@ pub async fn write_capture(
             mime: None,
             attachments: vec![],
             tags,
+            time: Some(match as_of {
+                Some(instant) => crate::temporal::TimeEnvelope::from_instant(instant),
+                None => crate::temporal::TimeEnvelope::capture_now(),
+            }),
             extra: Map::new(),
         }),
         Source {
@@ -351,8 +391,20 @@ async fn commit_capture(
             let vectors = VectorStore::open(home, EMBEDDING_DIM)
                 .await
                 .context("open vector store")?;
+            let tags_json = match &capture.kind {
+                crate::event::EventKind::Capture(p) => {
+                    serde_json::to_string(&p.tags).unwrap_or_else(|_| "{}".into())
+                }
+                _ => "{}".to_string(),
+            };
             vectors
-                .add(&capture.id.to_string(), &v, to_index, capture.ts)
+                .add(
+                    &capture.id.to_string(),
+                    &v,
+                    to_index,
+                    &tags_json,
+                    capture.ts,
+                )
                 .await
                 .context("write embedding to vectors.lance")?;
         }
@@ -391,15 +443,17 @@ async fn commit_capture(
         // (passed to resolve_contradiction) shares it with whichever
         // event ends up appended below.
         let new_event_id = crate::event_id::EventId::new();
-        let new_fact = Fact::from_event(
+        let mut new_fact = Fact::from_event(
             new_event_id,
             &new_payload,
             Utc::now(),
             Some(rule_id.to_string()),
         );
 
+        // P1: valid-time-ordered resolution. May retire older priors AND/OR
+        // set new_fact.retired_at when an existing newer fact bounds this one.
         let retired_ids = facts_store
-            .resolve_contradiction(&new_fact)
+            .resolve_contradiction(&mut new_fact)
             .context("smart_forgetting: resolve_contradiction")?;
 
         let source = fact_event_source(capture);
@@ -467,16 +521,22 @@ fn build_fact_payload(capture: &Event, ef: &crate::extractor::ExtractedFact) -> 
     // T-52: inherit the source capture's kind so smart forgetting
     // (T-56) can apply the decision-never-retires rule, and so
     // profile rendering groups facts by their semantic category.
-    let (inherited_tags, inherited_kind) = match &capture.kind {
-        EventKind::Capture(p) => (p.tags.clone(), p.kind.clone()),
-        _ => (BTreeMap::new(), crate::kind::Kind::default()),
+    let (inherited_tags, inherited_kind, valid_from) = match &capture.kind {
+        EventKind::Capture(p) => (
+            p.tags.clone(),
+            p.kind.clone(),
+            // P1/P0.6: source valid_from from the temporal envelope so an
+            // imported fact carries its ORIGINAL instant, not import time.
+            p.effective_capture_instant(capture.ts),
+        ),
+        _ => (BTreeMap::new(), crate::kind::Kind::default(), capture.ts),
     };
     FactPayload {
         subject: ef.subject.clone(),
         predicate: ef.predicate.clone(),
         object: ef.object.clone(),
         confidence: ef.confidence,
-        valid_from: capture.ts,
+        valid_from,
         valid_to: None,
         derived_from: vec![capture.id],
         kind: inherited_kind,
@@ -580,6 +640,40 @@ mod tests {
     }
     fn restore_embedder_env() {
         std::env::remove_var("LOCALMEM_MODEL_DIR");
+    }
+
+    #[test]
+    fn build_fact_payload_sources_valid_from_from_temporal_envelope() {
+        use crate::temporal::TimeEnvelope;
+        // An imported capture whose original instant differs from the
+        // event-shell ts (which is write/import time).
+        let original = chrono::DateTime::<chrono::Utc>::from_timestamp(1_600_000_000, 0).unwrap();
+        let mut cp = CapturePayload {
+            text: "user uses SQLite".into(),
+            ..Default::default()
+        };
+        cp.time = Some(TimeEnvelope::from_instant(original));
+        let ev = Event::new(
+            EventKind::Capture(cp),
+            Source {
+                app: "test".into(),
+                host: "h".into(),
+                user: None,
+            },
+        );
+        // ev.ts is ~now, distinct from `original`.
+        assert_ne!(ev.ts, original);
+        let ef = crate::extractor::ExtractedFact {
+            subject: "user".into(),
+            predicate: "uses".into(),
+            object: "SQLite".into(),
+            confidence: 0.8,
+        };
+        let payload = build_fact_payload(&ev, &ef);
+        assert_eq!(
+            payload.valid_from, original,
+            "fact valid_from must come from the capture's temporal envelope, not write-time ts"
+        );
     }
 
     #[tokio::test]
@@ -718,9 +812,50 @@ mod tests {
             "test",
             &BTreeMap::new(),
             &crate::kind::Kind::default(),
+            None,
         )
         .await;
         assert!(out.is_none());
+    }
+
+    #[tokio::test]
+    async fn write_capture_at_pins_valid_time_to_as_of() {
+        // T-113: `localmem write --as-of <past>` must stamp the capture's
+        // valid-time to that instant, not write-time, so bitemporal recall
+        // resolves it correctly. This is the in-process twin of the server
+        // /write `as_of` integration test.
+        let tmp = tempdir().unwrap();
+        init_home(tmp.path()).unwrap();
+        force_no_embedder();
+        let as_of = chrono::DateTime::parse_from_rfc3339("2021-03-04T09:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        write_capture_at(
+            tmp.path(),
+            "We migrated the billing service to Postgres.",
+            "test",
+            BTreeMap::new(),
+            crate::kind::Kind::default(),
+            Some(as_of),
+        )
+        .await
+        .unwrap();
+        restore_embedder_env();
+
+        let log = EventLog::open(tmp.path()).unwrap();
+        let events: Vec<Event> = log.iter().unwrap().collect::<Result<Vec<_>>>().unwrap();
+        let (payload, ev_ts) = events
+            .iter()
+            .find_map(|e| match &e.kind {
+                EventKind::Capture(p) => Some((p, e.ts)),
+                _ => None,
+            })
+            .expect("a capture event was written");
+        assert_eq!(
+            payload.effective_capture_instant(ev_ts),
+            as_of,
+            "capture valid-time must be the --as-of instant, not write-time"
+        );
     }
 
     #[tokio::test]

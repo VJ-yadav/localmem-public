@@ -74,18 +74,81 @@ pub fn run_export(home: Option<&str>, dest: &str, as_json: bool) -> Result<()> {
 /// Vendor imports append raw events to `events.jsonl`; they do NOT
 /// rebuild derived stores. Run `localmem replay` afterward (the CLI
 /// prints a reminder).
-pub fn run_import(home: Option<&str>, format: &str, src: &str, as_json: bool) -> Result<()> {
+pub fn run_import(
+    home: Option<&str>,
+    src: &str,
+    format: Option<&str>,
+    dry_run: bool,
+    as_json: bool,
+) -> Result<()> {
     let home = resolve_home(home)?;
-    match format {
+    let src_path = Path::new(src);
+
+    // Auto-detect the format from the file contents unless the user forced one.
+    // Keeps the common case a one-liner: `localmem import <path>`.
+    let fmt = match format {
+        Some(f) => f.to_string(),
+        None => crate::import::detect_format(src_path)
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "could not auto-detect the import format for {src}; \
+                     pass --format chatgpt|claude|claude-code|archive"
+                )
+            })?
+            .to_string(),
+    };
+
+    // --dry-run: parse + report what WOULD happen, without writing. This is the
+    // engine behind a guided import wizard in the dashboard.
+    if dry_run {
+        match fmt.as_str() {
+            "chatgpt" => {
+                let parsed = crate::import::chatgpt::parse_chatgpt(src_path)?;
+                emit_preview(
+                    &crate::import::preview_import(&home, "chatgpt", &parsed)?,
+                    as_json,
+                );
+            }
+            "claude" => {
+                let parsed = crate::import::claude::parse_claude(src_path)?;
+                emit_preview(
+                    &crate::import::preview_import(&home, "claude", &parsed)?,
+                    as_json,
+                );
+            }
+            "claude-code" => {
+                let parsed = crate::import::claude_code::parse_claude_code(src_path)?;
+                emit_preview(
+                    &crate::import::preview_import(&home, "claude-code", &parsed)?,
+                    as_json,
+                );
+            }
+            "archive" => {
+                let n = count_archive_events(src_path)?;
+                if as_json {
+                    println!(
+                        "{}",
+                        serde_json::json!({"ok": true, "dry_run": true, "format": "archive", "events": n})
+                    );
+                } else {
+                    println!("dry-run: archive `{src}` contains {n} events.");
+                }
+            }
+            other => {
+                bail!("unsupported import format `{other}` (expected chatgpt, claude, claude-code, archive)")
+            }
+        }
+        return Ok(());
+    }
+
+    match fmt.as_str() {
         "archive" => {
-            let out = import_from(&home, Path::new(src))?;
+            let out = import_from(&home, src_path)?;
             if as_json {
-                let json = serde_json::json!({
-                    "ok": true,
-                    "format": "archive",
-                    "events_count": out.events_count,
-                });
-                println!("{json}");
+                println!(
+                    "{}",
+                    serde_json::json!({"ok": true, "format": "archive", "events_count": out.events_count})
+                );
             } else {
                 println!(
                     "imported {} events into {}",
@@ -95,19 +158,69 @@ pub fn run_import(home: Option<&str>, format: &str, src: &str, as_json: bool) ->
             }
         }
         "chatgpt" => {
-            let stats = crate::import::chatgpt::import_chatgpt(&home, Path::new(src))?;
+            let stats = crate::import::chatgpt::import_chatgpt(&home, src_path)?;
             emit_vendor_stats(&stats, &home, as_json)?;
         }
         "claude" => {
-            let stats = crate::import::claude::import_claude(&home, Path::new(src))?;
+            let stats = crate::import::claude::import_claude(&home, src_path)?;
+            emit_vendor_stats(&stats, &home, as_json)?;
+        }
+        "claude-code" => {
+            let stats = crate::import::claude_code::import_claude_code(&home, src_path)?;
             emit_vendor_stats(&stats, &home, as_json)?;
         }
         other => bail!(
-            "unsupported import format `{other}`. Supported in v0.1: \
-             archive, chatgpt, claude."
+            "unsupported import format `{other}` (expected chatgpt, claude, claude-code, archive)"
         ),
     }
     Ok(())
+}
+
+/// Human/JSON output for a `--dry-run` import preview.
+fn emit_preview(pv: &crate::import::PreviewStats, as_json: bool) {
+    if as_json {
+        if let Ok(v) = serde_json::to_value(pv) {
+            let mut wrapped = serde_json::json!({"ok": true, "dry_run": true});
+            if let (Some(m), Some(o)) = (wrapped.as_object_mut(), v.as_object()) {
+                for (k, val) in o {
+                    m.insert(k.clone(), val.clone());
+                }
+            }
+            println!("{wrapped}");
+        }
+    } else {
+        println!(
+            "dry-run: {} export — {} messages across {} conversations",
+            pv.format, pv.total_messages, pv.conversations_seen
+        );
+        println!(
+            "  {} new, {} already imported, {} skipped while parsing",
+            pv.new_messages, pv.already_imported, pv.messages_skipped
+        );
+        println!("Run the same command without --dry-run to import.");
+    }
+}
+
+/// Count events in a localmem archive without importing (for `--dry-run`).
+/// Uses the header's `events_count` when present, else counts non-empty lines.
+fn count_archive_events(path: &Path) -> Result<u64> {
+    let f = File::open(path).with_context(|| format!("open archive {}", path.display()))?;
+    let mut lines = BufReader::new(f).lines();
+    let Some(first) = lines.next() else {
+        return Ok(0);
+    };
+    let first = first.context("read first archive line")?;
+    if let Ok(h) = serde_json::from_str::<ArchiveHeader>(&first) {
+        return Ok(h.events_count);
+    }
+    // No header (a raw events.jsonl): count this line + the rest.
+    let mut n = if first.trim().is_empty() { 0 } else { 1 };
+    for line in lines {
+        if !line.context("read archive line")?.trim().is_empty() {
+            n += 1;
+        }
+    }
+    Ok(n)
 }
 
 fn emit_vendor_stats(
@@ -126,10 +239,11 @@ fn emit_vendor_stats(
         println!("{wrapped}");
     } else {
         println!(
-            "imported {} ({} conversations, {} messages skipped) into {}",
+            "imported {} ({} conversations, {} skipped, {} already imported) into {}",
             stats.events_appended,
             stats.conversations_seen,
             stats.messages_skipped,
+            stats.messages_deduped,
             home.display()
         );
         println!("Next: run `localmem replay` to rebuild derived stores.");
@@ -279,6 +393,7 @@ mod tests {
     fn capture(text: &str) -> Event {
         Event::new(
             EventKind::Capture(CapturePayload {
+                time: None,
                 text: text.into(),
                 rewritten_text: None,
                 kind: Default::default(),

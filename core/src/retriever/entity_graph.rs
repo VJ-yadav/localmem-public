@@ -72,12 +72,7 @@ impl Retriever for EntityGraphRetriever {
         NAME
     }
 
-    async fn search(
-        &self,
-        query: &str,
-        k: usize,
-        _filters: &Filters,
-    ) -> Result<Vec<HybridHit>> {
+    async fn search(&self, query: &str, k: usize, _filters: &Filters) -> Result<Vec<HybridHit>> {
         if k == 0 {
             return Ok(Vec::new());
         }
@@ -87,7 +82,9 @@ impl Retriever for EntityGraphRetriever {
         // query). `subjects()` includes retired rows for audit, but
         // the walk SQL below filters on retired_at IS NULL anyway,
         // so seeds that exist only via retired facts won't expand.
-        let all_subjects = facts.subjects().context("read subjects for entity-graph seed")?;
+        let all_subjects = facts
+            .subjects()
+            .context("read subjects for entity-graph seed")?;
         let query_lower = query.to_ascii_lowercase();
         let seeds: Vec<String> = all_subjects
             .into_iter()
@@ -117,6 +114,7 @@ impl Retriever for EntityGraphRetriever {
                 content: format!("{} {} {}", row.subject, row.predicate, row.object),
                 score: row.score,
                 sources: vec![SOURCE_TAG],
+                valid_from: Some(row.valid_from),
             })
             .collect())
     }
@@ -166,7 +164,10 @@ mod tests {
     async fn returns_empty_when_query_mentions_no_known_subject() {
         let (_tmp, facts) = store_with(vec![fact("alice", "knows", "bob", 0.9)]).await;
         let r = EntityGraphRetriever::new(facts);
-        let out = r.search("totally unrelated", 10, &Filters::default()).await.unwrap();
+        let out = r
+            .search("totally unrelated", 10, &Filters::default())
+            .await
+            .unwrap();
         assert!(out.is_empty());
     }
 
@@ -212,10 +213,7 @@ mod tests {
         let f4 = fact("delta", "linked_to", "epsilon", 0.9); // depth 3, excluded
         let (_tmp, facts) = store_with(vec![f1, f2, f3, f4]).await;
         let r = EntityGraphRetriever::new(facts);
-        let out = r
-            .search("alpha", 10, &Filters::default())
-            .await
-            .unwrap();
+        let out = r.search("alpha", 10, &Filters::default()).await.unwrap();
         // depth 0 (alpha→beta) + depth 1 (beta→gamma) + depth 2
         // (gamma→delta). delta→epsilon is depth 3, dropped.
         assert_eq!(out.len(), 3, "got: {out:?}");
@@ -235,10 +233,7 @@ mod tests {
         weak.confidence = 0.5;
         let (_tmp, facts) = store_with(vec![weak]).await;
         let r = EntityGraphRetriever::new(facts);
-        let out = r
-            .search("alice", 10, &Filters::default())
-            .await
-            .unwrap();
+        let out = r.search("alice", 10, &Filters::default()).await.unwrap();
         // The seed subject exists, but the only edge is too
         // speculative; nothing surfaces.
         assert!(out.is_empty(), "got: {out:?}");
@@ -251,10 +246,7 @@ mod tests {
         let live = fact("alice", "lives_in", "paris", 0.9);
         let (_tmp, facts) = store_with(vec![retired_edge, live]).await;
         let r = EntityGraphRetriever::new(facts);
-        let out = r
-            .search("alice", 10, &Filters::default())
-            .await
-            .unwrap();
+        let out = r.search("alice", 10, &Filters::default()).await.unwrap();
         // Only (alice lives_in paris) surfaces; the retired edge is
         // skipped.
         assert_eq!(out.len(), 1, "got: {out:?}");
