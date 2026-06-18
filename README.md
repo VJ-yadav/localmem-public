@@ -37,31 +37,31 @@
 > Cursor can't remember what you told ChatGPT.
 > Every AI chat starts from zero.
 
-**localmem** is the memory layer that follows you across every AI tool you use. **Status:** v0.2 — usable for daily AI work.
+**localmem** is the memory layer that follows you across every AI tool you use. **Status:** v0.3.3 — rerank + a local cross-encoder on by default; 75% on LongMemEval.
 
 ---
 
 ## Install
 
 ```bash
-# 1. Install the Rust core binary
+# One command. Installs the single static Rust core (~66 MB) into
+# ~/.local/bin, then runs `localmem setup`: fetches the embedder
+# (bge-small) + reranker (ms-marco-MiniLM) models (~210 MB), wires every
+# MCP client it detects, and starts the always-on local core on :7788.
 curl -fsSL https://localmem.org/install | sh
+```
 
-# 2. Initialize + fetch the embedding model (~44 MB)
-localmem init && localmem fetch-model
+Restart your AI client and ask "do you have memory tools?" — it should mention `memory_write`, `memory_search`, `memory_recall`, and the rest. **That's it.**
 
-# 3. Start the local HTTP daemon (leave running; MCP clients talk to it)
-localmem serve &
+Wire an extra client `setup` didn't auto-detect:
 
-# 4. Wire it into the AI tools you use
+```bash
 localmem mcp install --client claude          # Claude Desktop
 localmem mcp install --client claude-code     # Claude Code CLI
 localmem mcp install --client cursor          # Cursor
 localmem mcp install --client cline           # Cline (VS Code)
 localmem mcp install --client windsurf        # Windsurf
 ```
-
-Restart the AI client. The agent can now read and write `memory_*` tools. **That's it.**
 
 **Or via npx** (no Rust binary needed, MCP shim only — useful if a teammate already has the core running):
 
@@ -104,7 +104,7 @@ localmem search "what language do I prefer"
 ## What it does
 
 - **Captures** — `localmem write --kind preference --content "..."` ingests text. The write policy decides commit / dedup / skip / forget and records every decision in `journal.log`.
-- **Recall** — `localmem search "query"` runs hybrid BM25 + ANN with per-kind recency decay and reciprocal-rank fusion. `--at-time RFC3339` for bitemporal queries ("what did we believe last Tuesday?").
+- **Recall** — `localmem search "query"` runs hybrid BM25 + ANN with per-kind recency decay and reciprocal-rank fusion, reranked by a local cross-encoder (ms-marco-MiniLM, on by default). `--at-time RFC3339` for bitemporal queries ("what did we believe last Tuesday?").
 - **Entity profiles** — `localmem recall <subject>` returns a fact-by-fact view of a subject. `localmem profile <subject>` synthesizes it as markdown.
 - **Container tags** — every capture can carry `--tags project=X,topic=Y`. Reserved tags include `retention=ephemeral` (auto-expire) and `visibility=private`.
 - **Smart forgetting** — active contradiction resolution: a higher-confidence fact on the same `(subject, predicate)` retires the prior live fact and emits an `Update` event, fully auditable via `localmem audit`.
@@ -153,7 +153,7 @@ Full design: [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ## Build from source
 
-The released binary covers macOS arm64 (Apple Silicon). For Intel Mac, Linux, or anyone who'd rather build it themselves:
+Prebuilt binaries cover macOS arm64 (Apple Silicon) and Linux x86_64. For Intel Mac, Linux aarch64, or anyone who'd rather build it themselves:
 
 ```bash
 git clone https://github.com/VJ-yadav/localmem-community
@@ -162,7 +162,7 @@ cargo build --release           # needs Rust 1.83+; ~5–10 min on first build
 ./target/release/localmem doctor
 ```
 
-Cross-compiled binaries for Intel Mac + Linux ship in a follow-up release.
+Intel Mac and Linux aarch64 build cleanly from source today; more prebuilt targets land in a later release.
 
 ---
 

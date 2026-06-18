@@ -11,17 +11,22 @@ derived stores; this package just speaks MCP and forwards calls.
 ## Install + wire up (60 seconds)
 
 ```bash
-# 1. Install the Rust core (one-time per machine)
-curl -fsSL https://github.com/VJ-yadav/localmem-community/releases/latest/download/install.sh | sh
-localmem init
-localmem fetch-model   # downloads BGE-small (~44 MB) for semantic search
+# One command. Installs the single static Rust core (~66 MB) into
+# ~/.local/bin, then runs `localmem setup`: fetches the embedder
+# (bge-small) + reranker (ms-marco-MiniLM) models (~210 MB), wires every
+# MCP client it detects, and starts the always-on local core on :7788.
+curl -fsSL https://localmem.org/install | sh
+```
 
-# 2. Wire the MCP server into your AI client (zero-config bootstrap)
-npx localmem-mcp install --client claude          # Claude Desktop
-npx localmem-mcp install --client claude-code     # Claude Code CLI
-npx localmem-mcp install --client cursor          # Cursor
-npx localmem-mcp install --client cline           # Cline (VS Code)
-npx localmem-mcp install --client windsurf        # Windsurf
+`setup` auto-wires every client it detects. To wire one it missed (or to
+wire without the binary, MCP shim only — talks to a core a teammate runs):
+
+```bash
+npx -y localmem-mcp install --client claude          # Claude Desktop
+npx -y localmem-mcp install --client claude-code     # Claude Code CLI
+npx -y localmem-mcp install --client cursor          # Cursor
+npx -y localmem-mcp install --client cline           # Cline (VS Code)
+npx -y localmem-mcp install --client windsurf        # Windsurf
 ```
 
 Restart the AI client. The agent can now call `memory_write`,
