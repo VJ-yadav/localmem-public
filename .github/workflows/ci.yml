@@ -86,6 +86,15 @@ jobs:
         working-directory: core
         run: cargo test --verbose
 
+      # Gate the landing page against the binary just built above
+      # (core/target/release/localmem): version, dashboard port, every CLI
+      # command shown, the npm package name, the install one-liner, and the
+      # demo-video budget. Fails the job if the site drifts from the product.
+      # macos-14 only: the checks are platform-independent, so once is enough.
+      - name: Website coherence (site matches the binary)
+        if: matrix.os == 'macos-14'
+        run: node scripts/check-site-coherence.mjs
+
   mcp-server:
     name: mcp-server
     runs-on: ubuntu-latest
