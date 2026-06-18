@@ -130,6 +130,13 @@ jobs:
     if: always()
     runs-on: ubuntu-latest
     steps:
+      # install.sh is a release asset (curl'd via
+      # releases/latest/download/install.sh, the headline one-liner). It lives
+      # at the repo root, so the publish job needs the source tree, not just
+      # the build artifacts.
+      - name: Check out repo (for install.sh)
+        uses: actions/checkout@v4
+
       - name: Download all build artifacts
         uses: actions/download-artifact@v4
         with:
@@ -148,6 +155,10 @@ jobs:
           # SHA256SUMS install.sh expects.
           cat localmem-*.tar.gz.sha256 > SHA256SUMS
           rm -f localmem-*.tar.gz.sha256
+          # Ship install.sh as an asset so releases/latest/download/install.sh
+          # (the curl|sh one-liner) resolves. Without this the headline install
+          # 404s the moment this release becomes "latest".
+          cp "${GITHUB_WORKSPACE}/install.sh" install.sh
           echo "--- release assets ---"
           ls -la
           echo "--- SHA256SUMS ---"
@@ -165,3 +176,4 @@ jobs:
           files: |
             dist/localmem-*.tar.gz
             dist/SHA256SUMS
+            dist/install.sh
