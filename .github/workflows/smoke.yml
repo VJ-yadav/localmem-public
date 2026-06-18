@@ -1,0 +1,110 @@
+name: release-smoke
+
+# Clean-room verification of a PUBLISHED release: download the actual
+# release tarball onto a fresh runner, install nothing else, and prove the
+# binary works end to end. This catches the failure local checks cannot, a
+# release that builds but does not RUN on a clean machine (missing model
+# fetch, a broken reranker, a replay that loses data).
+#
+# Primary target is macOS arm64 (the machine most users run), so it leads the
+# matrix. Linux x86_64 covers the other prebuilt target. macOS is why this
+# lives in Actions and not GCP: GCP has no macOS runners.
+#
+# Manual trigger with the tag to test (defaults to the latest release). Run it
+# after a release publishes, as the last gate before announcing:
+#   gh workflow run smoke.yml -f tag=v0.3.3
+#
+# Works while the repo is still private: gh downloads the release assets with
+# the workflow token. The PUBLIC curl|sh path (localmem.org/install) is
+# verified separately once the repo is public.
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag to smoke-test (blank = latest)'
+        required: false
+        default: ''
+
+permissions:
+  contents: read # download release assets
+
+jobs:
+  smoke:
+    name: smoke (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14 # Apple Silicon, the primary target
+            target: aarch64-apple-darwin
+          - os: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+      TARGET: ${{ matrix.target }}
+    steps:
+      - name: Resolve tag
+        id: tag
+        run: |
+          set -euo pipefail
+          tag="${{ github.event.inputs.tag }}"
+          if [ -z "$tag" ]; then
+            tag="$(gh release view --repo "$REPO" --json tagName --jq .tagName)"
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "smoke-testing release $tag on $TARGET"
+
+      - name: Download + extract release tarball
+        run: |
+          set -euo pipefail
+          gh release download "${{ steps.tag.outputs.tag }}" --repo "$REPO" \
+            --pattern "localmem-*-${TARGET}.tar.gz" --dir dl
+          tar -xzf dl/localmem-*-"${TARGET}".tar.gz -C dl
+          chmod +x dl/localmem
+          # A tarball binary carries no quarantine xattr, but mirror what the
+          # installer does on macOS so first exec never stalls on Gatekeeper.
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            xattr -d com.apple.quarantine dl/localmem 2>/dev/null || true
+          fi
+
+      - name: Version matches the tag
+        run: |
+          set -euo pipefail
+          want="${{ steps.tag.outputs.tag }}"; want="${want#v}"
+          got="$(dl/localmem --version | awk '{print $2}')"
+          echo "binary reports $got; tag is $want"
+          [ "$got" = "$want" ] || { echo "::error::version mismatch: binary=$got tag=$want"; exit 1; }
+
+      - name: Init + fetch both models
+        run: |
+          set -euo pipefail
+          export LOCALMEM_HOME="$RUNNER_TEMP/lm"
+          dl/localmem init --home "$LOCALMEM_HOME"
+          dl/localmem fetch-model --home "$LOCALMEM_HOME"                  # embedder (bge-small)
+          dl/localmem fetch-model --home "$LOCALMEM_HOME" --model reranker # cross-encoder (ms-marco-MiniLM)
+
+      - name: Round-trip survives replay (event log is source of truth)
+        run: |
+          set -euo pipefail
+          export LOCALMEM_HOME="$RUNNER_TEMP/lm"
+          dl/localmem write --home "$LOCALMEM_HOME" --kind preference \
+            --content "I prefer Rust for systems work"
+          dl/localmem search --home "$LOCALMEM_HOME" "what language do I prefer" | grep -qi rust
+          dl/localmem replay --home "$LOCALMEM_HOME"
+          # Same hit after rebuilding every derived store from events.jsonl alone.
+          dl/localmem search --home "$LOCALMEM_HOME" "what language do I prefer" | grep -qi rust
+
+      - name: Reranker actually loads (the 56% silent-degrade guard)
+        run: |
+          set -euo pipefail
+          export LOCALMEM_HOME="$RUNNER_TEMP/lm"
+          dl/localmem doctor --home "$LOCALMEM_HOME" --json > doctor.json || true
+          cat doctor.json
+          # rerank is on by default in 0.3.3; with the model fetched above the
+          # doctor reranker check MUST be 'pass' (loads AND scores), else search
+          # silently runs first-stage-only.
+          jq -e '.checks[] | select(.name=="reranker") | .status=="pass"' doctor.json \
+            || { echo "::error::reranker did not load+score on a clean install"; exit 1; }
