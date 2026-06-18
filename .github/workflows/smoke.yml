@@ -83,8 +83,13 @@ jobs:
           set -euo pipefail
           export LOCALMEM_HOME="$RUNNER_TEMP/lm"
           dl/localmem init --home "$LOCALMEM_HOME"
-          dl/localmem fetch-model --home "$LOCALMEM_HOME"                  # embedder (bge-small)
-          dl/localmem fetch-model --home "$LOCALMEM_HOME" --model reranker # cross-encoder (ms-marco-MiniLM)
+          # HuggingFace rate-limits (HTTP 429) the shared CI-runner IPs, so the
+          # model download is flaky through no fault of the binary. Retry with
+          # backoff; a genuine failure (bad URL, checksum) still fails after the
+          # attempts are exhausted.
+          retry() { for i in 1 2 3 4 5; do "$@" && return 0; echo "attempt $i failed; backing off $((i*15))s"; sleep $((i*15)); done; return 1; }
+          retry dl/localmem fetch-model --home "$LOCALMEM_HOME"                  # embedder (bge-small)
+          retry dl/localmem fetch-model --home "$LOCALMEM_HOME" --model reranker # cross-encoder (ms-marco-MiniLM)
 
       - name: Round-trip survives replay (event log is source of truth)
         run: |
