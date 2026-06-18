@@ -88,6 +88,7 @@
 *::selection { background: var(--lm-accent); color: white; }
 
 html, body {
+  overflow-x: hidden;
   background: var(--lm-bg);
   color: var(--lm-ink-secondary);
   font-family: var(--lm-font-body);
@@ -292,12 +293,12 @@ code {
   top: 0;
   background: var(--lm-bg);
   border-bottom: 4px solid var(--lm-border-heavy);
-  padding: 14px 24px;
+  padding: 16px clamp(22px, 4vw, 80px);
   z-index: 50;
 }
 .lm-nav__inner {
-  max-width: 1140px;
-  margin: 0 auto;
+  max-width: none;
+  margin: 0;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -333,7 +334,7 @@ code {
   .lm-nav__links { display: none; }
 }
 
-main { max-width: 1140px; margin: 0 auto; padding: 0 24px; }
+main { max-width: min(1640px, 92vw); margin: 0 auto; padding: 0 clamp(24px, 4vw, 80px); }
 section.lm-section { padding: 70px 0; border-top: 2px solid var(--lm-border-heavy); }
 section.lm-section:first-of-type { border-top: none; }
 
@@ -350,7 +351,7 @@ section.lm-section:first-of-type { border-top: none; }
 
 .lm-h1 {
   font-family: var(--lm-font-display);
-  font-size: clamp(36px, 6vw, 64px);
+  font-size: clamp(36px, 6vw, 96px);
   line-height: 1.05;
   font-weight: 900;
   letter-spacing: -0.025em;
@@ -362,7 +363,7 @@ section.lm-section:first-of-type { border-top: none; }
 
 .lm-h2 {
   font-family: var(--lm-font-display);
-  font-size: clamp(24px, 3.4vw, 32px);
+  font-size: clamp(24px, 3.6vw, 48px);
   line-height: 1.2;
   font-weight: 800;
   letter-spacing: -0.015em;
@@ -387,17 +388,28 @@ section.lm-section:first-of-type { border-top: none; }
 
 /* --- HERO (full-bleed, agentmemory-style stacked brand) --- */
 .hero-full {
+  position: relative;
+  overflow: hidden;
   background: var(--lm-bg);
   background-image: radial-gradient(circle, var(--lm-bg-dot) 0.5px, transparent 0.5px);
   background-size: 16px 16px;
-  border-bottom: 4px solid var(--lm-border-heavy);
-  padding: 72px 0 76px;
+  padding: 88px 0 96px;
+}
+.hero-graph {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 0;
+  pointer-events: none;
 }
 .hero-full__inner {
-  max-width: 1320px;
-  margin: 0 auto;
-  padding: 0 32px;
+  max-width: none;
+  margin: 0;
+  padding: 0 clamp(20px, 2.5vw, 56px);
   text-align: center;
+  position: relative;
+  z-index: 1;
 }
 .hero-full__eyebrow {
   display: inline-flex;
@@ -422,7 +434,7 @@ section.lm-section:first-of-type { border-top: none; }
 .hero-full__brand {
   font-family: var(--lm-font-display);
   font-weight: 900;
-  font-size: clamp(56px, 12vw, 168px);
+  font-size: clamp(56px, 15vw, 300px);
   line-height: 0.95;
   letter-spacing: 0.005em;
   color: var(--lm-ink);
@@ -441,7 +453,7 @@ section.lm-section:first-of-type { border-top: none; }
 
 .hero-full__sub {
   font-family: var(--lm-font-display);
-  font-size: clamp(18px, 2.1vw, 26px);
+  font-size: clamp(18px, 2.2vw, 34px);
   font-weight: 500;
   line-height: 1.4;
   letter-spacing: -0.005em;
@@ -478,8 +490,8 @@ section.lm-section:first-of-type { border-top: none; }
   flex-wrap: wrap;
   border: 1.5px solid var(--lm-border-heavy);
   background: var(--lm-bg-card);
-  max-width: 920px;
-  margin: 0 auto 24px;
+  max-width: min(1180px, 92vw);
+  margin: 0 auto 28px;
 }
 .hero-full__stat {
   flex: 1 1 140px;
@@ -546,6 +558,14 @@ section.lm-section:first-of-type { border-top: none; }
 }
 .hero-full__cmd .copy:hover { background: var(--lm-ink); color: var(--lm-bg); }
 .hero-full__cmd .copy.done { background: var(--lm-accent); color: var(--lm-ink); border-color: var(--lm-ink); }
+.hero-full__alt {
+  font-family: var(--lm-font-mono);
+  font-size: 12.5px;
+  color: var(--lm-ink-faint);
+  margin: 0 auto 24px;
+}
+.hero-full__alt code { background: var(--lm-bg-inset); border: 1px solid var(--lm-border-light); padding: 2px 7px; color: var(--lm-ink); }
+.hero-full__alt a { color: var(--lm-accent-strong); font-weight: 600; }
 
 .hero-full__ctas {
   display: flex;
@@ -590,19 +610,228 @@ section.lm-section:first-of-type { border-top: none; }
   border-color: var(--lm-ink);
 }
 
+/* --- STATS BAND (by the numbers, our own measured figures) --- */
+.stats-band {
+  background: var(--lm-bg-alt);
+  background-image: radial-gradient(circle, var(--lm-bg-dot) 0.5px, transparent 0.5px);
+  background-size: 16px 16px;
+  padding: clamp(44px, 5vw, 84px) 0;
+}
+.stats-band__inner {
+  max-width: none;
+  margin: 0;
+  padding: 0 clamp(20px, 2.5vw, 56px);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: clamp(28px, 4vw, 72px);
+  text-align: left;
+}
+.stats-band__eyebrow {
+  font-family: var(--lm-font-mono);
+  font-size: clamp(11px, 1vw, 13px);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  color: var(--lm-accent-strong);
+  margin-bottom: 12px;
+}
+@media (prefers-color-scheme: dark) { .stats-band__eyebrow { color: var(--lm-accent); } }
+.stats-band__head {
+  flex: 0 0 clamp(240px, 26vw, 380px);
+}
+.stats-band__title {
+  font-family: var(--lm-font-display);
+  font-size: clamp(26px, 3vw, 46px);
+  font-weight: 800;
+  line-height: 1.05;
+  letter-spacing: -0.02em;
+  color: var(--lm-ink);
+  margin: 0 0 14px;
+}
+.stats-band__grid {
+  flex: 1 1 520px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: clamp(28px, 3.5vw, 52px) clamp(18px, 2.5vw, 40px);
+  align-items: start;
+  justify-items: center;
+}
+.stats-band__stat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 10px;
+}
+.stats-band__num {
+  font-family: var(--lm-font-display);
+  font-size: clamp(40px, 5vw, 78px);
+  font-weight: 900;
+  line-height: 0.92;
+  letter-spacing: -0.03em;
+  color: var(--lm-ink);
+}
+.stats-band__num.accent { color: var(--lm-accent); }
+.stats-band__label {
+  font-family: var(--lm-font-mono);
+  font-size: clamp(10px, 0.9vw, 12px);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--lm-ink-faint);
+  line-height: 1.45;
+  max-width: 230px;
+}
+.stats-band__note {
+  font-family: var(--lm-font-mono);
+  font-size: clamp(11px, 1vw, 12.5px);
+  line-height: 1.5;
+  color: var(--lm-ink-faint);
+  margin: 0;
+}
+
+/* --- STATEMENT BAND (full-bleed one-liner) --- */
+.statement-band {
+  background: var(--lm-bg);
+  padding: clamp(48px, 6.5vw, 104px) clamp(20px, 4vw, 64px);
+  text-align: center;
+}
+.statement-band p {
+  font-family: var(--lm-font-display);
+  font-size: clamp(24px, 3.6vw, 54px);
+  font-weight: 800;
+  line-height: 1.12;
+  letter-spacing: -0.025em;
+  color: var(--lm-ink);
+  max-width: 1100px;
+  margin: 0 auto;
+}
+.statement-band .accent { color: var(--lm-accent); }
+
+/* --- VIDEO FRAME (embedded demo, browser-chrome, responsive 16:9) --- */
+.video-frame {
+  max-width: min(1100px, 100%);
+  margin: clamp(24px, 3vw, 40px) auto 0;
+  border: 1.5px solid var(--lm-border-heavy);
+  background: var(--lm-bg-card);
+}
+.video-frame + .video-frame { margin-top: clamp(20px, 2.5vw, 32px); }
+.video-frame__chrome {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 10px 14px;
+  border-bottom: 1.5px solid var(--lm-border-heavy);
+}
+.video-frame__dot { width: 11px; height: 11px; border-radius: 50%; background: var(--lm-border-light); flex-shrink: 0; }
+.video-frame__title {
+  margin-left: 10px;
+  font-family: var(--lm-font-mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: lowercase;
+  color: var(--lm-ink-faint);
+}
+.video-frame__media {
+  position: relative;
+  aspect-ratio: 16 / 9;
+  background: var(--lm-bg-inset);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+.video-frame__media video { width: 100%; height: 100%; object-fit: cover; display: block; }
+.video-frame__placeholder {
+  font-family: var(--lm-font-mono);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--lm-ink-faint);
+  text-align: center;
+  padding: 24px;
+}
+
+/* Full-bleed band for sections inside <main> (stretch edge-to-edge like the hero/stats bands) */
+.lm-section.bleed {
+  width: 100vw;
+  max-width: 100vw;
+  margin-left: calc(50% - 50vw);
+  margin-right: calc(50% - 50vw);
+  padding-left: clamp(24px, 4vw, 80px);
+  padding-right: clamp(24px, 4vw, 80px);
+  border-top: none;
+}
+.lm-section.bleed.shade {
+  background: var(--lm-bg-alt);
+  background-image: radial-gradient(circle, var(--lm-bg-dot) 0.5px, transparent 0.5px);
+  background-size: 16px 16px;
+}
+/* Side-by-side content (terminal + video, or two videos); reflows on small screens. */
+.split2 {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+  gap: clamp(22px, 2.6vw, 44px);
+  align-items: start;
+  margin-top: clamp(20px, 2.5vw, 34px);
+}
+.split2 .video-frame { max-width: 100%; margin: 0; }
+.split2 .demo { margin: 0; }
+
+/* --- SITE FOOTER (full-bleed, matches the nav) --- */
+.site-footer {
+  border-top: 4px solid var(--lm-border-heavy);
+  background: var(--lm-bg-alt);
+  background-image: radial-gradient(circle, var(--lm-bg-dot) 0.5px, transparent 0.5px);
+  background-size: 16px 16px;
+}
+.site-footer__inner {
+  display: grid;
+  grid-template-columns: 1.6fr repeat(4, 1fr);
+  gap: clamp(24px, 3vw, 56px);
+  padding: clamp(40px, 5vw, 76px) clamp(22px, 4vw, 80px);
+}
+@media (max-width: 900px) { .site-footer__inner { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 540px) { .site-footer__inner { grid-template-columns: 1fr; } }
+.sf-brand { display: flex; flex-direction: column; gap: 12px; align-items: flex-start; }
+.sf-logo {
+  font-family: var(--lm-font-display);
+  font-weight: 900; font-size: 26px; letter-spacing: -0.02em;
+  text-transform: lowercase; color: var(--lm-ink);
+}
+.sf-logo .a { color: var(--lm-accent); }
+.sf-tag { font-size: 13px; color: var(--lm-ink-muted); line-height: 1.5; max-width: 290px; }
+.sf-col { display: flex; flex-direction: column; gap: 9px; }
+.sf-col__h {
+  font-family: var(--lm-font-mono);
+  font-size: 11px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 0.12em; color: var(--lm-ink-faint); margin-bottom: 4px;
+}
+.sf-col a { font-size: 13.5px; color: var(--lm-ink-secondary); font-weight: 600; }
+.sf-col a:hover { color: var(--lm-accent-strong); text-decoration: none; }
+.sf-line { font-size: 13px; color: var(--lm-ink-muted); line-height: 1.45; }
+.sf-line strong { color: var(--lm-ink); font-weight: 700; }
+.site-footer__bar {
+  display: flex; flex-wrap: wrap; gap: 10px; justify-content: space-between;
+  padding: 18px clamp(22px, 4vw, 80px);
+  border-top: 1.5px solid var(--lm-border-light);
+  font-family: var(--lm-font-mono); font-size: 11px; color: var(--lm-ink-faint);
+  letter-spacing: 0.04em;
+}
+.site-footer__bar a { color: var(--lm-ink-secondary); }
+
 /* --- SHIP IT (numbered install steps + agent wireup grid) --- */
 .ship-it {
-  border-top: 4px solid var(--lm-border-heavy);
-  border-bottom: 4px solid var(--lm-border-heavy);
   background: var(--lm-bg);
   background-image: radial-gradient(circle, var(--lm-bg-dot) 0.5px, transparent 0.5px);
   background-size: 16px 16px;
-  padding: 70px 0 76px;
+  padding: 88px 0 96px;
 }
 .ship-it__inner {
-  max-width: 1140px;
+  max-width: min(1640px, 92vw);
   margin: 0 auto;
-  padding: 0 32px;
+  padding: 0 clamp(24px, 4vw, 80px);
 }
 .ship-it__eyebrow {
   display: inline-flex;
@@ -1010,8 +1239,9 @@ footer.lm-footer .meta { color: var(--lm-ink-faint); text-transform: none; lette
 
 <!-- HERO (full-width, lives outside main) -->
 <section class="hero-full" id="install">
+  <canvas class="hero-graph" aria-hidden="true"></canvas>
   <div class="hero-full__inner">
-    <div class="hero-full__eyebrow">NO CONTENT TELEMETRY &middot; v0.2.0 &middot; APACHE-2.0</div>
+    <div class="hero-full__eyebrow">NO CONTENT TELEMETRY &middot; v0.3.3 &middot; APACHE-2.0</div>
 
     <h1 class="hero-full__brand">local<span class="a">&middot;</span>mem</h1>
 
@@ -1025,9 +1255,10 @@ footer.lm-footer .meta { color: var(--lm-ink-faint); text-transform: none; lette
 
     <div class="hero-full__cmd">
       <span class="dollar">$</span>
-      <span class="cmd">npm install -g localmem-mcp</span>
-      <button class="copy" type="button" onclick="copyText(this, 'npm install -g localmem-mcp')">click to copy</button>
+      <span class="cmd">curl -fsSL https://localmem.org/install | sh</span>
+      <button class="copy" type="button" onclick="copyText(this, 'curl -fsSL https://localmem.org/install | sh')">click to copy</button>
     </div>
+    <p class="hero-full__alt">or <code>npm install -g localmem-mcp</code> &middot; <a href="https://www.npmjs.com/package/localmem-mcp">view on npm</a></p>
 
     <div class="hero-full__ctas">
       <a class="lm-btn lm-btn--primary" href="#ship-it">&#9656; Install</a>
@@ -1048,26 +1279,63 @@ footer.lm-footer .meta { color: var(--lm-ink-faint); text-transform: none; lette
   </div>
 </section>
 
+<!-- STATS BAND (our own measured numbers) -->
+<section class="stats-band" aria-label="localmem by the numbers">
+  <div class="stats-band__inner">
+    <div class="stats-band__head">
+      <h2 class="stats-band__title">Measured, not claimed.</h2>
+      <p class="stats-band__note">From LongMemEval (a 500-question long-term memory benchmark), gpt-4o answer and judge, localmem v0.3.3. The token figure is the precise context served per question vs feeding the full session history; counts are exact (tiktoken).</p>
+    </div>
+    <div class="stats-band__grid">
+      <div class="stats-band__stat">
+        <span class="stats-band__num accent">75%</span>
+        <span class="stats-band__label">answered correctly on LongMemEval, a 500-question long-term memory benchmark</span>
+      </div>
+      <div class="stats-band__stat">
+        <span class="stats-band__num">98%</span>
+        <span class="stats-band__label">fewer tokens than feeding your full history: 1,882 served vs ~128K per question</span>
+      </div>
+      <div class="stats-band__stat">
+        <span class="stats-band__num">6</span>
+        <span class="stats-band__label">AI clients share one memory: Claude Code, Cursor, Cline, Windsurf, Codex, Claude Desktop</span>
+      </div>
+      <div class="stats-band__stat">
+        <span class="stats-band__num">0</span>
+        <span class="stats-band__label">cloud calls, your memory never leaves your machine</span>
+      </div>
+      <div class="stats-band__stat">
+        <span class="stats-band__num">1</span>
+        <span class="stats-band__label">file you own: events.jsonl, replayable from day one</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- STATEMENT (full-bleed one-liner) -->
+<section class="statement-band">
+  <p>The right context, in the <span class="accent">fewest tokens</span>. Without missing anything.</p>
+</section>
+
 <!-- SHIP IT (full-width, mirrors hero band) -->
 <section class="ship-it" id="ship-it">
   <div class="ship-it__inner">
     <div class="ship-it__eyebrow">Set up</div>
-    <h2 class="ship-it__title">Two commands.<br>Any MCP client.</h2>
+    <h2 class="ship-it__title">One command.<br>Every MCP client.</h2>
     <p class="ship-it__sub">
-      Installs a single Rust binary into <code>/usr/local/bin</code>. Starts a local HTTP core on :8765. Wires up any MCP-compatible agent with one more line.
+      One static Rust binary, no external database. The installer drops it in <code>~/.local/bin</code> and runs <code>localmem setup</code>: it fetches the models, wires every AI client it detects, and starts the local core on <code>:7788</code>.
     </p>
 
     <!-- Step 1 -->
     <div class="step">
       <div class="step__num">1</div>
       <div>
-        <div class="step__head">Install the binary</div>
+        <div class="step__head">Install + set up</div>
         <div class="step__cmd">
           <span class="dollar">$</span>
           <span class="cmd">curl -fsSL https://localmem.org/install | sh</span>
           <button class="copy" type="button" onclick="copyText(this, 'curl -fsSL https://localmem.org/install | sh')">click to copy</button>
         </div>
-        <div class="step__hint">One static Rust binary &middot; macOS + Linux &middot; ~12 MB</div>
+        <div class="step__hint">macOS + Linux &middot; ~66 MB download &middot; then runs <code>localmem setup</code>: fetches the embedder + reranker (~210 MB), wires the clients it detects, starts the core on :7788</div>
       </div>
     </div>
 
@@ -1075,21 +1343,7 @@ footer.lm-footer .meta { color: var(--lm-ink-faint); text-transform: none; lette
     <div class="step">
       <div class="step__num">2</div>
       <div>
-        <div class="step__head">Start the core</div>
-        <div class="step__cmd">
-          <span class="dollar">$</span>
-          <span class="cmd">localmem init &amp;&amp; localmem fetch-model &amp;&amp; localmem serve &amp;</span>
-          <button class="copy" type="button" onclick="copyText(this, 'localmem init && localmem fetch-model && localmem serve &')">click to copy</button>
-        </div>
-        <div class="step__hint">Creates ~/.localmem &middot; fetches the 30 MB embedder &middot; binds :8765</div>
-      </div>
-    </div>
-
-    <!-- Step 3 -->
-    <div class="step">
-      <div class="step__num">3</div>
-      <div>
-        <div class="step__head">Wire up any agent</div>
+        <div class="step__head">Wire another client (optional)</div>
         <div class="wireup">
           <div class="wireup__left">
             <div class="wireup__heading">One-command install per client</div>
@@ -1134,7 +1388,7 @@ footer.lm-footer .meta { color: var(--lm-ink-faint); text-transform: none; lette
   }
 }</div>
             <div class="wireup__foot">
-              Drop into any client that reads mcpServers. Defaults to talking to localhost:8765.
+              Drop into any client that reads mcpServers. Defaults to talking to localhost:7788.
             </div>
           </div>
         </div>
@@ -1146,11 +1400,33 @@ footer.lm-footer .meta { color: var(--lm-ink-faint); text-transform: none; lette
 <main>
 
   <!-- DEMO -->
-  <section class="lm-section" id="demo">
-    <div class="lm-eyebrow">/ The 30-second demo</div>
-    <h2 class="lm-h2">Every other memory product is a database.</h2>
-    <p class="lm-h2-sub">We're an event log with caches.</p>
+  <!-- WHY: the problem -> North Star -->
+  <section class="lm-section" id="why">
+    <div class="lm-eyebrow">/ Why localmem</div>
+    <h2 class="lm-h2">Other memory layers hand your agent a haystack.<br>localmem hands it the needle.</h2>
+    <p class="lm-h2-sub">Most "memory" just feeds your history back into the prompt and makes the model re-derive what it already worked out, on every call. Slow, expensive, and it buries the one fact that matters. localmem does the reasoning when you <em>write</em>, so every read is a precise slice.</p>
 
+    <div class="features">
+      <div class="lm-card">
+        <div class="feature__eyebrow">without a memory layer</div>
+        <h3 class="feature__title">Re-feed the whole history</h3>
+        <p class="feature__body">~128K tokens of transcript per question on LongMemEval. The model re-reads everything and reasons from scratch every time: costly, and easy to miss the needle.</p>
+      </div>
+      <div class="lm-card">
+        <div class="feature__eyebrow">with localmem</div>
+        <h3 class="feature__title">Hand over the exact slice</h3>
+        <p class="feature__body">1,882 tokens of the right context: <strong>98% fewer</strong>, and 75% answered correctly on the same benchmark. The understanding already happened at write-time, so reads stay cheap.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- TRUST MOAT: the replay demo -->
+  <section class="lm-section bleed shade" id="demo">
+    <div class="lm-eyebrow">/ The trust moat</div>
+    <h2 class="lm-h2">Your memory can't rot, and can't lock you in.</h2>
+    <p class="lm-h2-sub">The event log is the only source of truth. Every other store is a cache you can delete and rebuild.</p>
+
+    <div class="split2">
     <div class="demo">
       <pre><span class="comment"># Write a memory</span>
 $ localmem write --kind preference --content "I prefer Rust for systems work"
@@ -1171,59 +1447,75 @@ $ localmem search "what language do I prefer"</pre>
         <code>~/.localmem/events.jsonl</code> is the single source of truth. DuckDB, LanceDB, Tantivy. All recomputable caches.
       </p>
     </div>
+
+    <div class="video-frame">
+      <div class="video-frame__chrome">
+        <span class="video-frame__dot"></span><span class="video-frame__dot"></span><span class="video-frame__dot"></span>
+        <span class="video-frame__title">localmem replay</span>
+      </div>
+      <div class="video-frame__media">
+        <!-- Drop the file at landing/media/replay.mp4 and replace the placeholder div with:
+        <video src="media/replay.mp4" autoplay muted loop playsinline poster="media/replay.jpg"></video> -->
+        <div class="video-frame__placeholder">Replay demo &middot; video coming</div>
+      </div>
+    </div>
+    </div>
+  </section>
+
+  <!-- VIEWER + GRAPH (embedded demo videos) -->
+  <section class="lm-section bleed" id="viewer">
+    <div class="lm-eyebrow">/ See it</div>
+    <h2 class="lm-h2">A viewer for everything localmem holds.</h2>
+    <p class="lm-h2-sub">Coverage, your profile, project-scoped search, and a typed knowledge graph of every entity it has understood. Served by the core itself, offline.</p>
+
+    <div class="split2">
+    <div class="video-frame">
+      <div class="video-frame__chrome">
+        <span class="video-frame__dot"></span><span class="video-frame__dot"></span><span class="video-frame__dot"></span>
+        <span class="video-frame__title">localmem viewer &middot; :7788</span>
+      </div>
+      <div class="video-frame__media">
+        <!-- Drop the file at landing/media/viewer.mp4 and replace the placeholder div with:
+        <video src="media/viewer.mp4" autoplay muted loop playsinline poster="media/viewer.jpg"></video> -->
+        <div class="video-frame__placeholder">Viewer walkthrough &middot; video coming</div>
+      </div>
+    </div>
+
+    <div class="video-frame">
+      <div class="video-frame__chrome">
+        <span class="video-frame__dot"></span><span class="video-frame__dot"></span><span class="video-frame__dot"></span>
+        <span class="video-frame__title">knowledge graph</span>
+      </div>
+      <div class="video-frame__media">
+        <!-- Drop the file at landing/media/graph.mp4 and replace the placeholder div with:
+        <video src="media/graph.mp4" autoplay muted loop playsinline poster="media/graph.jpg"></video> -->
+        <div class="video-frame__placeholder">Knowledge graph &middot; video coming</div>
+      </div>
+    </div>
+    </div>
   </section>
 
   <!-- FEATURES -->
   <section class="lm-section" id="features">
-    <div class="lm-eyebrow">/ What's inside</div>
-    <h2 class="lm-h2">Narrow MCP surface. Wide CLI surface.</h2>
-    <p class="lm-h2-sub">Auditable trust substrate underneath both.</p>
+    <div class="lm-eyebrow">/ How it works</div>
+    <h2 class="lm-h2">Capture. Understand. Recall.</h2>
+    <p class="lm-h2-sub">The reasoning happens when you write, so every read is a precise slice, not a re-derivation.</p>
 
     <div class="features">
       <div class="lm-card">
-        <div class="feature__eyebrow">moat</div>
-        <h3 class="feature__title">Event log = source of truth</h3>
-        <p class="feature__body">Append-only <code>events.jsonl</code>. <code>localmem replay</code> rebuilds every derived store deterministically. <code>cat</code>-able forever.</p>
+        <div class="feature__eyebrow">1 &middot; capture</div>
+        <h3 class="feature__title">One append-only log</h3>
+        <p class="feature__body">Every prompt, decision, and tool-use is appended to <code>~/.localmem/events.jsonl</code>, never mutated. Ephemeral tool-traces auto-expire, so signal never drowns in noise.</p>
       </div>
       <div class="lm-card">
-        <div class="feature__eyebrow">forget</div>
-        <h3 class="feature__title">Auditable forgetting</h3>
-        <p class="feature__body">"Delete" emits a <code>forget</code> event. History stays intact. <code>localmem audit &lt;id&gt;</code> traces every touch.</p>
+        <div class="feature__eyebrow">2 &middot; understand</div>
+        <h3 class="feature__title">Decomposed at write-time</h3>
+        <p class="feature__body">An async worker turns each capture into a summary, typed facts, and entities, and weaves them into a knowledge graph you can explore. Off the hot path, so it never blocks a write.</p>
       </div>
       <div class="lm-card">
-        <div class="feature__eyebrow">bitemporal</div>
-        <h3 class="feature__title">Bitemporal facts</h3>
-        <p class="feature__body">Every fact has <code>valid_from</code>, <code>valid_to</code>, <code>retired_at</code>. Ask "what did we believe last Tuesday?" with <code>--at-time</code>.</p>
-      </div>
-      <div class="lm-card">
-        <div class="feature__eyebrow">smart</div>
-        <h3 class="feature__title">Active contradiction resolution</h3>
-        <p class="feature__body">Higher-confidence facts on the same <code>(subject, predicate)</code> retire the prior live fact and emit an <code>Update</code> event.</p>
-      </div>
-      <div class="lm-card">
-        <div class="feature__eyebrow">tags</div>
-        <h3 class="feature__title">Container tags</h3>
-        <p class="feature__body">Scope captures with <code>--tags project=X</code>. Reserved tags: <code>retention=ephemeral</code>, <code>visibility=private</code>.</p>
-      </div>
-      <div class="lm-card">
-        <div class="feature__eyebrow">kinds</div>
-        <h3 class="feature__title">Closed-core kinds</h3>
-        <p class="feature__body">fact / preference / decision / constraint / todo / note. Per-kind recency decay: preferences age slower than todos.</p>
-      </div>
-      <div class="lm-card">
-        <div class="feature__eyebrow">mcp</div>
-        <h3 class="feature__title">MCP-native</h3>
-        <p class="feature__body">6 tools, 2 prompts, 4 resources. Works with every MCP-compatible client. Generic config recipe for the rest.</p>
-      </div>
-      <div class="lm-card">
-        <div class="feature__eyebrow">import</div>
-        <h3 class="feature__title">Import wizard</h3>
-        <p class="feature__body">First-run scan of <code>~/Downloads</code> finds ChatGPT and Claude export ZIPs. One-step migration in.</p>
-      </div>
-      <div class="lm-card">
-        <div class="feature__eyebrow">peer</div>
-        <h3 class="feature__title">CLI + server are peers</h3>
-        <p class="feature__body">Either can run without the other. They share the filesystem using each store's native concurrency model.</p>
+        <div class="feature__eyebrow">3 &middot; recall</div>
+        <h3 class="feature__title">The precise slice</h3>
+        <p class="feature__body">Hybrid retrieval (BM25 + vector + the fact graph), reranked by a local cross-encoder, hands back only what matters: 75% on LongMemEval in ~1,882 tokens per recall.</p>
       </div>
     </div>
   </section>
@@ -1231,8 +1523,8 @@ $ localmem search "what language do I prefer"</pre>
   <!-- COMPARE -->
   <section class="lm-section" id="compare">
     <div class="lm-eyebrow">/ How it compares</div>
-    <h2 class="lm-h2">Narrow on purpose.</h2>
-    <p class="lm-h2-sub">Trust substrate underneath everything.</p>
+    <h2 class="lm-h2">Built for trust, not lock-in.</h2>
+    <p class="lm-h2-sub">What you still have when the cloud, the vendor, or the project goes away.</p>
 
     <div class="compare">
       <table>
@@ -1261,8 +1553,8 @@ $ localmem search "what language do I prefer"</pre>
   <!-- AGENTS -->
   <section class="lm-section" id="agents">
     <div class="lm-eyebrow">/ Works everywhere MCP works</div>
-    <h2 class="lm-h2">One-command setup for five clients.</h2>
-    <p class="lm-h2-sub">Generic MCP config recipe for everything else.</p>
+    <h2 class="lm-h2">One memory, every tool.</h2>
+    <p class="lm-h2-sub">Write in one client, recall in the next. Five wired by one command; any other MCP client via one config block.</p>
 
     <div class="agents">
       <div class="agent-pill">Claude Desktop <code>--client claude</code></div>
@@ -1312,29 +1604,55 @@ $ localmem search "what language do I prefer"</pre>
   <section class="lm-section">
     <div class="lm-eyebrow">/ License</div>
     <h2 class="lm-h2">Apache-2.0.</h2>
-    <p class="lm-h2-sub">The Rust core, the MCP server, the event-log schema, and every importer are Apache-2.0. Your data sits in <code>~/.localmem/</code>. The OSS core never makes a network call to complete a memory op.</p>
+    <p class="lm-h2-sub">The Rust core, the MCP server, the event-log schema, and every importer are Apache-2.0. Your data sits in <code>~/.localmem/</code>. Storing, searching, and recalling never make a network call.</p>
 
-    <p style="font-size: 18px; font-weight: 700; color: var(--lm-ink); margin-top: 8px;">Your content does not leave your machine. There is no path in which it does.</p>
+    <p style="font-size: 18px; font-weight: 700; color: var(--lm-ink); margin-top: 8px;">No telemetry, no cloud sync, no account. Your memory is stored and searched entirely on your machine. The optional understanding step runs on a local model, or your own LLM key if you choose.</p>
 
     <div class="callout">
-      <strong>v0.2.0 status.</strong> Prebuilt binary ships for macOS Apple Silicon. Intel Mac, Linux x86_64, and Linux aarch64 build cleanly from source today. Cross-compiled binaries for the rest land in v0.2.1.
+      <strong>v0.3.3 status.</strong> Prebuilt binaries ship for macOS Apple Silicon and Linux x86_64. Intel Mac and Linux aarch64 build cleanly from source today; cross-compiled binaries for the rest land in a later release.
     </div>
   </section>
 
 </main>
 
-<footer class="lm-footer">
-  <div class="links">
-    <a href="https://github.com/VJ-yadav/localmem-community">GitHub</a>
-    <a href="https://www.npmjs.com/package/localmem-mcp">npm</a>
-    <a href="https://github.com/VJ-yadav/localmem-community/discussions">Discussions</a>
-    <a href="https://github.com/VJ-yadav/localmem-community/issues">Issues</a>
-    <a href="https://github.com/VJ-yadav/localmem-community/releases">Releases</a>
-    <a href="https://github.com/VJ-yadav/localmem-community/blob/main/docs/HOW_IT_WORKS.md">Docs</a>
-    <a href="https://github.com/VJ-yadav/localmem-community/blob/main/LICENSE">License</a>
+<footer class="site-footer">
+  <div class="site-footer__inner">
+    <div class="sf-brand">
+      <div class="sf-logo">local<span class="a">&middot;</span>mem</div>
+      <p class="sf-tag">Your agent's memory, in a file you own. Local-first, MCP-native, Apache-2.0.</p>
+      <a class="github-button" href="https://github.com/VJ-yadav/localmem-community" data-icon="octicon-star" data-size="large" data-show-count="true" aria-label="Star localmem-community on GitHub">Star</a>
+    </div>
+    <div class="sf-col">
+      <div class="sf-col__h">Product</div>
+      <a href="#why">Why localmem</a>
+      <a href="#features">How it works</a>
+      <a href="#viewer">The viewer</a>
+      <a href="#ship-it">Install</a>
+    </div>
+    <div class="sf-col">
+      <div class="sf-col__h">Resources</div>
+      <a href="https://github.com/VJ-yadav/localmem-community">GitHub</a>
+      <a href="https://www.npmjs.com/package/localmem-mcp">npm</a>
+      <a href="https://github.com/VJ-yadav/localmem-community/blob/main/docs/HOW_IT_WORKS.md">Docs</a>
+      <a href="https://github.com/VJ-yadav/localmem-community/discussions">Discussions</a>
+      <a href="https://github.com/VJ-yadav/localmem-community/releases">Releases</a>
+    </div>
+    <div class="sf-col">
+      <div class="sf-col__h">Status</div>
+      <span class="sf-line"><strong>Now:</strong> v0.3.3 &middot; 75% LongMemEval</span>
+      <span class="sf-line">Prebuilt: macOS arm64 + Linux x86_64</span>
+      <span class="sf-line"><strong>Next:</strong> temporal-aware ranking, multi-session recall, demo videos</span>
+    </div>
+    <div class="sf-col">
+      <div class="sf-col__h">Editions</div>
+      <span class="sf-line"><strong>Community</strong> &middot; Apache-2.0, free forever</span>
+      <span class="sf-line"><strong>Cloud</strong> &middot; encrypted sync across machines (coming)</span>
+      <span class="sf-line"><strong>Enterprise</strong> &middot; team memory, SSO, support (coming)</span>
+    </div>
   </div>
-  <div class="meta">
-    localmem &middot; Apache-2.0 &middot; built by <a href="https://github.com/VJ-yadav">Vijay Yadav</a>
+  <div class="site-footer__bar">
+    <span>localmem &middot; Apache-2.0 &middot; built by <a href="https://github.com/VJ-yadav">Vijay Yadav</a></span>
+    <span class="faint">No telemetry &middot; nothing leaves your machine</span>
   </div>
 </footer>
 
@@ -1368,6 +1686,80 @@ function copyInstall(btn) {
   );
   var days = Math.floor((nowUTC - launchUTC) / 86400000) + 1;
   el.textContent = days < 1 ? 1 : days;
+})();
+
+// Ambient "memory graph": drifting nodes + faint links behind the hero.
+// Light, subtle, non-distracting. Pauses when off-screen or reduced-motion.
+(function memoryGraph() {
+  var canvas = document.querySelector('.hero-graph');
+  if (!canvas || !canvas.getContext) return;
+  var ctx = canvas.getContext('2d');
+  var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  var dpr = Math.min(window.devicePixelRatio || 1, 2);
+  var nodes = [], W = 0, H = 0, raf = null;
+
+  function readAccent() {
+    var c = getComputedStyle(document.documentElement).getPropertyValue('--lm-accent').trim();
+    var h = (c || '#16a34a').replace('#', '');
+    if (h.length === 3) h = h[0]+h[0]+h[1]+h[1]+h[2]+h[2];
+    var n = parseInt(h, 16);
+    return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+  }
+  var rgb = readAccent();
+  function rgba(a) { return 'rgba(' + rgb[0] + ',' + rgb[1] + ',' + rgb[2] + ',' + a + ')'; }
+
+  function resize() {
+    W = canvas.clientWidth; H = canvas.clientHeight;
+    canvas.width = W * dpr; canvas.height = H * dpr;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    var count = Math.min(70, Math.max(22, Math.round(W * H / 24000)));
+    nodes = [];
+    for (var i = 0; i < count; i++) {
+      nodes.push({
+        x: Math.random() * W, y: Math.random() * H,
+        vx: (Math.random() - 0.5) * 0.15, vy: (Math.random() - 0.5) * 0.15,
+        r: Math.random() * 1.4 + 0.7
+      });
+    }
+  }
+
+  var DIST = 140;
+  function draw() {
+    ctx.clearRect(0, 0, W, H);
+    for (var i = 0; i < nodes.length; i++) {
+      for (var j = i + 1; j < nodes.length; j++) {
+        var a = nodes[i], b = nodes[j];
+        var dx = a.x - b.x, dy = a.y - b.y, d = Math.sqrt(dx * dx + dy * dy);
+        if (d < DIST) {
+          ctx.strokeStyle = rgba((1 - d / DIST) * 0.13);
+          ctx.lineWidth = 0.6;
+          ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+        }
+      }
+    }
+    for (var k = 0; k < nodes.length; k++) {
+      var n = nodes[k];
+      ctx.fillStyle = rgba(0.42);
+      ctx.beginPath(); ctx.arc(n.x, n.y, n.r, 0, Math.PI * 2); ctx.fill();
+    }
+  }
+  function step() {
+    for (var i = 0; i < nodes.length; i++) {
+      var n = nodes[i];
+      n.x += n.vx; n.y += n.vy;
+      if (n.x < 0 || n.x > W) n.vx *= -1;
+      if (n.y < 0 || n.y > H) n.vy *= -1;
+    }
+    draw();
+    raf = requestAnimationFrame(step);
+  }
+  function start() { if (!raf && !reduce) raf = requestAnimationFrame(step); }
+  function stop() { if (raf) { cancelAnimationFrame(raf); raf = null; } }
+
+  resize();
+  reduce ? draw() : start();
+  window.addEventListener('resize', function () { resize(); if (reduce) draw(); });
+  document.addEventListener('visibilitychange', function () { document.hidden ? stop() : start(); });
 })();
 </script>
 <script async defer src="https://buttons.github.io/buttons.js"></script>
