@@ -818,8 +818,16 @@ mod tests {
         assert_eq!(m.slug, "reranker");
         assert_eq!(m.files.len(), 2);
         for f in m.files {
-            assert!(!f.sha256_hex.is_empty(), "{} must ship an armed SHA", f.filename);
-            assert!(f.size_bytes > 0, "{} must declare a size for the disk precheck", f.filename);
+            assert!(
+                !f.sha256_hex.is_empty(),
+                "{} must ship an armed SHA",
+                f.filename
+            );
+            assert!(
+                f.size_bytes > 0,
+                "{} must declare a size for the disk precheck",
+                f.filename
+            );
         }
     }
 

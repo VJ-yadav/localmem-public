@@ -1296,14 +1296,11 @@ pub struct RecallRequest {
 /// `false` for a STRICT per-project view (only that project's memory). Same
 /// predicate either way; only the flag differs.
 fn project_scope(project: Option<&str>, include_global: bool) -> Option<crate::retriever::Scope> {
-    project
-        .map(str::trim)
-        .filter(|p| !p.is_empty())
-        .map(|p| {
-            let mut s = crate::retriever::Scope::project_path(p);
-            s.include_global = include_global;
-            s
-        })
+    project.map(str::trim).filter(|p| !p.is_empty()).map(|p| {
+        let mut s = crate::retriever::Scope::project_path(p);
+        s.include_global = include_global;
+        s
+    })
 }
 
 /// Default for the optional `include_global` request field: inclusive (project +
@@ -2860,7 +2857,10 @@ pub async fn graph(
             .map(|r| (r.subject, r.predicate, r.object, r.confidence, r.valid_from))
             .collect()
     } else {
-        let scope = project_scope((!project.is_empty()).then_some(project.as_str()), want_global(req.include_global));
+        let scope = project_scope(
+            (!project.is_empty()).then_some(project.as_str()),
+            want_global(req.include_global),
+        );
         let mut facts = {
             let guard = state.facts.lock().await;
             guard

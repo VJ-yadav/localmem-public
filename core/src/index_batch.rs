@@ -215,7 +215,11 @@ mod tests {
                 .unwrap();
             b.add_capture(
                 "e4",
-                vec!["delta five".into(), "delta six".into(), "delta seven".into()],
+                vec![
+                    "delta five".into(),
+                    "delta six".into(),
+                    "delta seven".into(),
+                ],
                 "{}",
                 Utc::now(),
             )

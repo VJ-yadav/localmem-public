@@ -517,7 +517,11 @@ mod tests {
     fn reranker_check_fails_when_enabled_but_model_unloadable() {
         let tmp = tempdir().unwrap();
         write_events_file(tmp.path());
-        fs::write(tmp.path().join("config.toml"), "[retriever]\nrerank = true\n").unwrap();
+        fs::write(
+            tmp.path().join("config.toml"),
+            "[retriever]\nrerank = true\n",
+        )
+        .unwrap();
         std::env::set_var("LOCALMEM_RERANKER_DIR", tmp.path().join("no-model-here"));
         let r = check_reranker(tmp.path());
         std::env::remove_var("LOCALMEM_RERANKER_DIR");

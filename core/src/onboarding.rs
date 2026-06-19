@@ -201,12 +201,7 @@ impl GettingStarted {
             "localmem setup — almost there. Status:\n"
         });
         for c in &self.checks {
-            out.push_str(&format!(
-                "  {} {} — {}\n",
-                Self::icon(c),
-                c.label,
-                c.detail
-            ));
+            out.push_str(&format!("  {} {} — {}\n", Self::icon(c), c.label, c.detail));
         }
         // Manual fallbacks for anything not yet satisfied.
         let todos: Vec<&Check> = self.checks.iter().filter(|c| !c.ok).collect();
@@ -246,11 +241,19 @@ impl GettingStarted {
         for c in &self.checks {
             out.push_str(&format!("- {} {} — {}\n", Self::icon(c), c.label, c.detail));
         }
-        let todos: Vec<&Check> = self.checks.iter().filter(|c| !c.ok && c.fix.is_some()).collect();
+        let todos: Vec<&Check> = self
+            .checks
+            .iter()
+            .filter(|c| !c.ok && c.fix.is_some())
+            .collect();
         if !todos.is_empty() {
             out.push_str("\n**To finish:**\n");
             for c in todos {
-                out.push_str(&format!("- {}: `{}`\n", c.label, c.fix.as_deref().unwrap_or("")));
+                out.push_str(&format!(
+                    "- {}: `{}`\n",
+                    c.label,
+                    c.fix.as_deref().unwrap_or("")
+                ));
             }
         }
         if self.import_candidates > 0 {
@@ -268,10 +271,14 @@ mod tests {
     use super::*;
 
     fn clients(wired: &[&str]) -> Vec<(String, String, bool)> {
-        [("claude-code", "Claude Code"), ("cursor", "Cursor"), ("windsurf", "Windsurf")]
-            .iter()
-            .map(|(s, l)| (s.to_string(), l.to_string(), wired.contains(s)))
-            .collect()
+        [
+            ("claude-code", "Claude Code"),
+            ("cursor", "Cursor"),
+            ("windsurf", "Windsurf"),
+        ]
+        .iter()
+        .map(|(s, l)| (s.to_string(), l.to_string(), wired.contains(s)))
+        .collect()
     }
 
     #[test]
@@ -298,7 +305,13 @@ mod tests {
         let g = build("http://h", false, false, &clients(&[]), false, 0);
         let model = g.checks.iter().find(|c| c.key == "model").unwrap();
         assert_eq!(model.fix.as_deref(), Some("localmem fetch-model"));
-        assert!(g.checks.iter().find(|c| c.key == "service").unwrap().fix.is_some());
+        assert!(g
+            .checks
+            .iter()
+            .find(|c| c.key == "service")
+            .unwrap()
+            .fix
+            .is_some());
         // Render surfaces the fallbacks.
         let t = g.render_terminal();
         assert!(t.contains("To finish"));
@@ -318,7 +331,14 @@ mod tests {
 
     #[test]
     fn ready_render_says_set_up_and_shows_checks() {
-        let g = build("http://127.0.0.1:7788", true, true, &clients(&["claude-code"]), true, 1);
+        let g = build(
+            "http://127.0.0.1:7788",
+            true,
+            true,
+            &clients(&["claude-code"]),
+            true,
+            1,
+        );
         let t = g.render_terminal();
         assert!(t.contains("localmem is set up"));
         assert!(t.contains("✓ Embedder model"));
