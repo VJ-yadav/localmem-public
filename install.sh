@@ -7,10 +7,10 @@
 # finish onboarding (the two-command install).
 #
 # Usage:
-#   curl -fsSL https://localmem.co/install | sh
+#   curl -fsSL https://localmem.org/install | sh
 #
 # Or with a version pin:
-#   curl -fsSL https://localmem.co/install | sh -s -- --version v0.1.0
+#   curl -fsSL https://localmem.org/install | sh -s -- --version v0.1.0
 #
 # Flags:
 #   --no-setup            install the binary only; skip the setup step

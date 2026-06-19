@@ -196,7 +196,7 @@ Intel Mac and Linux aarch64 build cleanly from source today; more prebuilt targe
 
 ### Local web dashboard
 
-A read-only visual browser for the memory in your `~/.localmem/`. Subjects, tags, recent captures, search, profile — all in your browser, no cloud. MVP today, served by the Rust core itself in v0.2.2. See [`dashboard/README.md`](dashboard/README.md).
+A read-only visual browser for the memory in your `~/.localmem/`. Coverage overview, your profile, project-scoped search, a timeline, and a typed knowledge graph of every entity localmem has understood — all in your browser, no cloud. Served by the Rust core itself on `:7788`. See [`dashboard/README.md`](dashboard/README.md).
 
 ### Printable summary
 
