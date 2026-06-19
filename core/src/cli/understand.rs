@@ -178,7 +178,6 @@ pub async fn run_backfill(
 pub fn run_rebuild_graph(home: Option<&str>) -> Result<()> {
     use crate::event::EventKind;
     use crate::event_log::EventLog;
-    use crate::facts::FactsStore;
     use std::collections::HashSet;
 
     let home = resolve_home(home);

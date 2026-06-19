@@ -23,7 +23,7 @@
 use crate::embed::{Embedder, EMBEDDING_DIM};
 use crate::event::{Event, EventKind, PolicyAction};
 use crate::event_log::EventLog;
-use crate::facts::{Fact, FactsStore};
+use crate::facts::Fact;
 use crate::journal::{Journal, JournalEntry};
 use crate::lexical::{LexicalIndex, LexicalResultExt};
 use crate::policy::{EvalContext, Policy};
@@ -426,6 +426,7 @@ mod tests {
         UpdatePayload,
     };
     use crate::event_id::EventId;
+    use crate::facts::FactsStore;
     use chrono::Utc;
     use serde_json::Map;
     use tempfile::tempdir;

@@ -13,7 +13,7 @@ use crate::embed::{Embedder, EMBEDDING_DIM};
 use crate::event::{CapturePayload, Event, EventKind, FactPayload, PolicyAction, Source};
 use crate::event_log::EventLog;
 use crate::extractor::ExtractorRegistry;
-use crate::facts::{Fact, FactsStore};
+use crate::facts::Fact;
 use crate::journal::{Journal, JournalEntry};
 use crate::lexical::{LexicalIndex, LexicalResultExt};
 use crate::policy::{EvalContext, Policy};
@@ -632,6 +632,7 @@ mod tests {
     use super::*;
     use crate::cli::init::init_home;
     use crate::event_log::EVENTS_FILE;
+    use crate::facts::FactsStore;
     use tempfile::tempdir;
 
     /// Disable embedder lookup so tests run fast and offline.

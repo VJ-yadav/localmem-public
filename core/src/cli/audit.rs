@@ -17,7 +17,6 @@
 use crate::event::{Event, EventKind};
 use crate::event_id::EventId;
 use crate::event_log::EventLog;
-use crate::facts::FactsStore;
 use crate::journal::{Journal, JournalEntry};
 use anyhow::{anyhow, Context, Result};
 use chrono::SecondsFormat;
@@ -299,6 +298,7 @@ mod tests {
         CapturePayload, FactPayload, ForgetPayload, PolicyAction, Source, UpdatePayload,
     };
     use crate::facts::Fact;
+    use crate::facts::FactsStore;
     use chrono::{DateTime, Utc};
     use serde_json::{Map, Value};
     use tempfile::tempdir;

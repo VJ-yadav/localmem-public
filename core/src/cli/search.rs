@@ -11,7 +11,6 @@
 //! deliberately want exact-term-only results.
 
 use crate::embed::{Embedder, EMBEDDING_DIM};
-use crate::facts::FactsStore;
 use crate::lexical::{LexicalIndex, LexicalResultExt};
 use crate::retriever::{Filters, HybridHit, HybridRetriever};
 use crate::vectors::VectorStore;
@@ -218,7 +217,7 @@ pub async fn run(
                 .into_iter()
                 .filter(|h| {
                     crate::reserved_tags::is_visible(&h.tags, h.ts, now, visibility)
-                        && scope.as_ref().map_or(true, |s| {
+                        && scope.as_ref().is_none_or(|s| {
                             h.tags
                                 .get(&s.key)
                                 .map_or(s.include_global, |v| v == &s.value)
@@ -269,7 +268,7 @@ pub async fn run(
                         .into_iter()
                         .filter(|h| {
                             crate::reserved_tags::is_visible(&h.tags, h.ts, now, visibility)
-                                && scope.as_ref().map_or(true, |s| {
+                                && scope.as_ref().is_none_or(|s| {
                                     h.tags
                                         .get(&s.key)
                                         .map_or(s.include_global, |v| v == &s.value)

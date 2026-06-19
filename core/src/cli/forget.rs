@@ -16,7 +16,6 @@
 use crate::event::{Event, EventKind, ForgetPayload, Source};
 use crate::event_id::EventId;
 use crate::event_log::EventLog;
-use crate::facts::FactsStore;
 use anyhow::{bail, Context, Result};
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
@@ -208,6 +207,7 @@ mod tests {
     use super::*;
     use crate::cli::init::init_home;
     use crate::facts::Fact;
+    use crate::facts::FactsStore;
     use tempfile::tempdir;
 
     fn ts(epoch: i64) -> chrono::DateTime<Utc> {

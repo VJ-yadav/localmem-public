@@ -368,17 +368,10 @@ fn parse_duration_days(s: &str) -> Option<f64> {
 /// value to override the auto-tuned default on either knob.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(default)]
+#[derive(Default)]
 pub struct IndexingSection {
     pub embed_batch: usize,
     pub flush_rows: usize,
-}
-impl Default for IndexingSection {
-    fn default() -> Self {
-        Self {
-            embed_batch: 0,
-            flush_rows: 0,
-        }
-    }
 }
 
 /// Effective batch sizes after auto-tuning, with the core count that drove the
