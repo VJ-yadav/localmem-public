@@ -16,7 +16,6 @@
 use crate::event::{Event, EventKind, ForgetPayload, Source};
 use crate::event_id::EventId;
 use crate::event_log::EventLog;
-use crate::facts::FactsStore;
 use anyhow::{bail, Context, Result};
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
@@ -92,7 +91,7 @@ pub fn forget_by_target(
         .append(&forget_event)
         .context("append forget event")?;
 
-    let facts = FactsStore::open(home).context("open facts store")?;
+    let facts = crate::cli::open_facts(home)?;
     let n = facts
         .retire_facts_for_target(&target_id.to_string(), forget_event.ts)
         .context("retire facts on forget")?;
@@ -115,7 +114,7 @@ fn forget_by_criteria(
         bail!("forget --criteria requires at least `subject` or `predicate`");
     }
 
-    let facts = FactsStore::open(home).context("open facts store")?;
+    let facts = crate::cli::open_facts(home)?;
     // We rely on the audit-view query so retired rows are skipped:
     // re-running forget on already-retired facts produces zero work
     // (idempotency under repeat).
@@ -208,6 +207,7 @@ mod tests {
     use super::*;
     use crate::cli::init::init_home;
     use crate::facts::Fact;
+    use crate::facts::FactsStore;
     use tempfile::tempdir;
 
     fn ts(epoch: i64) -> chrono::DateTime<Utc> {

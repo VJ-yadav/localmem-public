@@ -11,7 +11,6 @@
 //! deliberately want exact-term-only results.
 
 use crate::embed::{Embedder, EMBEDDING_DIM};
-use crate::facts::FactsStore;
 use crate::lexical::{LexicalIndex, LexicalResultExt};
 use crate::retriever::{Filters, HybridHit, HybridRetriever};
 use crate::vectors::VectorStore;
@@ -57,7 +56,7 @@ pub struct DisplayHit {
     pub snippet: String,
     pub score: f32,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub sources: Vec<&'static str>,
+    pub sources: Vec<String>,
     /// Valid-time of the hit (when the memory happened, RFC3339), surfaced so
     /// the CLI exposes the temporal envelope the write/import paths now record
     /// (T-113). `None` when the source carried no instant.
@@ -84,7 +83,7 @@ impl DisplayHit {
             event_id: h.event_id,
             snippet: h.content,
             score: h.score,
-            sources: h.sources,
+            sources: h.sources.into_iter().map(String::from).collect(),
             valid_from: h
                 .valid_from
                 .map(|t| t.to_rfc3339_opts(SecondsFormat::Millis, true)),
@@ -134,6 +133,63 @@ pub async fn run(
                 value: p.clone(),
                 include_global: true,
             });
+    // The facts DuckDB lock is exclusive: while the always-on service holds it,
+    // an in-process hybrid/vector search cannot open the store. Route those
+    // modes through the running server (lex is reader-only and stays local).
+    // Kind/done filters have no server-side equivalent yet, so they keep the
+    // in-process path.
+    if !matches!(mode, Mode::Lex) && kind_filter.is_none() && done_filter.is_none() {
+        let mut body = serde_json::json!({ "query": query, "k": k, "browse": true });
+        if let Some(t) = at_time {
+            body["at_time"] = serde_json::Value::String(t.to_rfc3339());
+        }
+        if !tags.is_empty() {
+            body["tags"] = serde_json::to_value(&tags).unwrap_or_default();
+        }
+        if let Some(s) = scope.as_ref() {
+            body["scope"] = serde_json::json!({
+                "key": s.key, "value": s.value, "include_global": s.include_global
+            });
+        }
+        if let Some(v) = crate::cli::server_post(&home, "/search", body) {
+            let hits: Vec<DisplayHit> = v
+                .get("results")
+                .and_then(|r| r.as_array())
+                .map(|arr| {
+                    arr.iter()
+                        .map(|r| DisplayHit {
+                            // The server response carries the event id inside
+                            // `sources` (it builds sources = vec![event_id]),
+                            // so pull the id from there. It does not expose the
+                            // lexical/vector source labels, so the routed view
+                            // omits those.
+                            event_id: r
+                                .get("sources")
+                                .and_then(|x| x.as_array())
+                                .and_then(|a| a.first())
+                                .and_then(|s| s.as_str())
+                                .unwrap_or_default()
+                                .to_string(),
+                            snippet: r
+                                .get("fact")
+                                .and_then(|x| x.as_str())
+                                .unwrap_or_default()
+                                .to_string(),
+                            score: r.get("score").and_then(|x| x.as_f64()).unwrap_or(0.0) as f32,
+                            sources: Vec::new(),
+                            valid_from: r
+                                .get("valid_from")
+                                .and_then(|x| x.as_str())
+                                .map(String::from),
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+            let mut out = io::stdout().lock();
+            return write_output(&mut out, query, mode, &hits, as_json);
+        }
+    }
+
     let tag_filter = if tags.is_empty() { None } else { Some(&tags) };
     // Search is not the audit path. Per SPEC_V0_2 (T-51c),
     // `visibility=private` captures stay hidden; retention TTL
@@ -161,7 +217,7 @@ pub async fn run(
                 .into_iter()
                 .filter(|h| {
                     crate::reserved_tags::is_visible(&h.tags, h.ts, now, visibility)
-                        && scope.as_ref().map_or(true, |s| {
+                        && scope.as_ref().is_none_or(|s| {
                             h.tags
                                 .get(&s.key)
                                 .map_or(s.include_global, |v| v == &s.value)
@@ -212,7 +268,7 @@ pub async fn run(
                         .into_iter()
                         .filter(|h| {
                             crate::reserved_tags::is_visible(&h.tags, h.ts, now, visibility)
-                                && scope.as_ref().map_or(true, |s| {
+                                && scope.as_ref().is_none_or(|s| {
                                     h.tags
                                         .get(&s.key)
                                         .map_or(s.include_global, |v| v == &s.value)
@@ -230,7 +286,7 @@ pub async fn run(
                     // server for the writer.
                     let lexical = LexicalIndex::open_reader_only(&home)
                         .lex_context("open lexical index for reading")?;
-                    let facts = FactsStore::open(&home).context("open facts store")?;
+                    let facts = crate::cli::open_facts(&home)?;
                     // T-57 + T-73: thread `[retriever].recency_weight`
                     // AND per-kind half-lives from config so the CLI
                     // search path matches the server's bias. A missing
@@ -494,7 +550,7 @@ mod tests {
                 event_id: "01HX2".into(),
                 snippet: "second hit".into(),
                 score: 0.5,
-                sources: vec!["lex", "vec"],
+                sources: vec!["lex".to_string(), "vec".to_string()],
                 valid_from: None,
             },
         ];
@@ -517,7 +573,7 @@ mod tests {
             event_id: "01HX1".into(),
             snippet: "hit".into(),
             score: 0.7,
-            sources: vec!["lex", "vec"],
+            sources: vec!["lex".to_string(), "vec".to_string()],
             valid_from: None,
         }];
         let mut buf = Vec::new();
@@ -664,6 +720,14 @@ mod tests {
         // explicit choice failed.
         let tmp = tempdir().unwrap();
         std::env::set_var("LOCALMEM_MODEL_DIR", tmp.path().join("definitely-not-here"));
+        // Force the in-process path: point the server addr at a dead port so the
+        // CLI does not route to a localmem service that happens to be running
+        // (vec/hybrid now route through a live server when one is reachable).
+        std::fs::write(
+            tmp.path().join("config.toml"),
+            "[server]\naddr = \"127.0.0.1:1\"\n",
+        )
+        .unwrap();
         let err = run(
             tmp.path().to_str(),
             "anything",

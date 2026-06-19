@@ -111,7 +111,7 @@ impl<'a> VectorBatcher<'a> {
             .embedder
             .embed_batch(&texts)
             .context("embed chunk batch during rebuild")?;
-        for (p, vec) in self.pending.drain(..).zip(vecs.into_iter()) {
+        for (p, vec) in self.pending.drain(..).zip(vecs) {
             self.ready.push(Ready {
                 eid: p.eid,
                 vec,
@@ -215,7 +215,11 @@ mod tests {
                 .unwrap();
             b.add_capture(
                 "e4",
-                vec!["delta five".into(), "delta six".into(), "delta seven".into()],
+                vec![
+                    "delta five".into(),
+                    "delta six".into(),
+                    "delta seven".into(),
+                ],
                 "{}",
                 Utc::now(),
             )

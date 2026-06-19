@@ -25,6 +25,29 @@ fn server_up(addr: &str) -> bool {
         .unwrap_or(false)
 }
 
+/// Open the DuckDB facts store for an in-process CLI path, turning DuckDB's raw
+/// "Conflicting lock" error into an actionable message when the always-on
+/// service is the process holding the lock. Commands that have a server route
+/// should prefer `server_post`/`server_get`; this is for the genuinely
+/// in-process paths and the server-down fallback, so a user never sees the bare
+/// lock error with no idea what to do.
+pub(crate) fn open_facts(home: &Path) -> anyhow::Result<crate::facts::FactsStore> {
+    crate::facts::FactsStore::open(home).map_err(|e| {
+        let msg = format!("{e:#}");
+        if msg.contains("Conflicting lock") || msg.contains("set lock on file") {
+            anyhow::anyhow!(
+                "localmem's background service is running and holds the memory database \
+                 (DuckDB allows one writer at a time).\n  \
+                 Reach your memory through the running service instead: open the dashboard at \
+                 http://127.0.0.1:7788, ask your AI client (MCP), or run `localmem search --mode lex`.\n  \
+                 To run this command directly, stop the service first with `localmem service uninstall`."
+            )
+        } else {
+            e
+        }
+    })
+}
+
 /// POST a read endpoint on the running server, returning its JSON, or `None`
 /// when no server is up (the caller then reads in-process).
 ///

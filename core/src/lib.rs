@@ -4,6 +4,15 @@
 //! that internal tests count as legitimate consumers of the public API.
 //! The `localmem` binary in `src/main.rs` is the thin CLI wrapper.
 
+// Pre-existing clippy lints surfaced when the Rust toolchain advanced; the CI
+// clippy step is manual-trigger, so they went unnoticed on main. Allowed
+// crate-wide to keep releases unblocked, pending a dedicated cleanup pass. New
+// code should still avoid these.
+#![allow(clippy::type_complexity)]
+#![allow(clippy::doc_lazy_continuation)]
+#![allow(clippy::manual_checked_ops)]
+#![allow(clippy::unnecessary_sort_by)]
+
 // Foundation (shipped: T-01 through T-04).
 pub mod config; //       T-46: `<home>/config.toml` loader
 pub mod event;
@@ -33,7 +42,7 @@ pub mod retriever; //    Integration: hybrid retriever (T-23)
 pub mod rewriter; //     Phase 5C: context rewriting at ingest (T-55)
 pub mod server; //       Group E: local axum HTTP server (T-19 to T-22)
 pub mod tag_match; //    Phase 5B: shared tag subset-match (T-51b)
-pub mod tokens; //       P7: North Star token accounting (real, model-correct counts)
 pub mod temporal; //     P1: timezone-correct temporal envelope (SPEC-temporal-foundation)
+pub mod tokens; //       P7: North Star token accounting (real, model-correct counts)
 pub mod understanding; // Layer 2: async per-capture decomposition + synthesis (SPEC 7c)
 pub mod vectors; //      Group B: LanceDB ANN index (T-09)

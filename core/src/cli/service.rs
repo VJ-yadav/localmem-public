@@ -30,6 +30,9 @@ fn exe_path() -> Result<String> {
         .into_owned())
 }
 
+// Used by the launchd (macOS) service path; the systemd (Linux) path resolves
+// the home elsewhere, so this is unused on Linux. Allow rather than cfg-gate.
+#[allow(dead_code)]
 fn resolve_home(override_: Option<&str>) -> PathBuf {
     if let Some(h) = override_.filter(|s| !s.is_empty()) {
         return PathBuf::from(h);

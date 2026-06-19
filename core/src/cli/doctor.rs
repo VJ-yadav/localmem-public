@@ -508,6 +508,13 @@ mod tests {
         std::env::remove_var("LOCALMEM_RETRIEVER_RERANK");
         let tmp = tempdir().unwrap();
         write_events_file(tmp.path());
+        // Rerank is default-on now, so disable it explicitly to exercise the
+        // disabled path. check_reranker reads the rerank flag from config.
+        std::fs::write(
+            tmp.path().join("config.toml"),
+            "[retriever]\nrerank = false\n",
+        )
+        .unwrap();
         let r = check_reranker(tmp.path());
         assert_eq!(r.status, Status::Pass);
         assert!(r.detail.contains("disabled"));
@@ -517,7 +524,11 @@ mod tests {
     fn reranker_check_fails_when_enabled_but_model_unloadable() {
         let tmp = tempdir().unwrap();
         write_events_file(tmp.path());
-        fs::write(tmp.path().join("config.toml"), "[retriever]\nrerank = true\n").unwrap();
+        fs::write(
+            tmp.path().join("config.toml"),
+            "[retriever]\nrerank = true\n",
+        )
+        .unwrap();
         std::env::set_var("LOCALMEM_RERANKER_DIR", tmp.path().join("no-model-here"));
         let r = check_reranker(tmp.path());
         std::env::remove_var("LOCALMEM_RERANKER_DIR");

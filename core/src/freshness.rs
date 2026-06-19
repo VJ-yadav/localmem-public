@@ -84,7 +84,10 @@ mod tests {
     fn half_at_one_half_life() {
         let now = Utc::now();
         let f = freshness("fact", days_ago(90, now), now, &hl());
-        assert!((f - 0.5).abs() < 0.01, "≈0.5 after one 90d half-life, got {f}");
+        assert!(
+            (f - 0.5).abs() < 0.01,
+            "≈0.5 after one 90d half-life, got {f}"
+        );
     }
 
     #[test]
@@ -107,7 +110,9 @@ mod tests {
     #[test]
     fn future_dated_clamps_to_one() {
         let now = Utc::now();
-        assert!((freshness("fact", now + chrono::Duration::days(5), now, &hl()) - 1.0).abs() < 1e-9);
+        assert!(
+            (freshness("fact", now + chrono::Duration::days(5), now, &hl()) - 1.0).abs() < 1e-9
+        );
     }
 
     #[test]

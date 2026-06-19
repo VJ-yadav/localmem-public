@@ -37,8 +37,9 @@ fn read_key(api_key_env: &str) -> Result<String> {
              your provider key (e.g. \"OPENAI_API_KEY\")"
         );
     }
-    let key = std::env::var(api_key_env)
-        .map_err(|_| anyhow!("env var `{api_key_env}` is not set; export your provider API key there"))?;
+    let key = std::env::var(api_key_env).map_err(|_| {
+        anyhow!("env var `{api_key_env}` is not set; export your provider API key there")
+    })?;
     if key.trim().is_empty() {
         bail!("env var `{api_key_env}` is set but empty");
     }
@@ -218,10 +219,7 @@ mod tests {
     #[test]
     fn json_slice_strips_fences_and_prose() {
         assert_eq!(json_object_slice("{\"a\":1}"), "{\"a\":1}");
-        assert_eq!(
-            json_object_slice("```json\n{\"a\":1}\n```"),
-            "{\"a\":1}"
-        );
+        assert_eq!(json_object_slice("```json\n{\"a\":1}\n```"), "{\"a\":1}");
         assert_eq!(
             json_object_slice("Here is the JSON:\n{\"a\":1}\nThanks!"),
             "{\"a\":1}"
@@ -230,7 +228,9 @@ mod tests {
 
     #[test]
     fn factory_selects_local_without_a_key() {
-        assert!(build_decomposer("ollama", "llama3.2:latest", "http://localhost:11434", "").is_ok());
+        assert!(
+            build_decomposer("ollama", "llama3.2:latest", "http://localhost:11434", "").is_ok()
+        );
         assert!(build_decomposer("", "llama3.2:latest", "http://localhost:11434", "").is_ok());
     }
 
@@ -248,7 +248,13 @@ mod tests {
         let miss = "LOCALMEM_TEST_NO_SUCH_KEY_4F2A";
         std::env::remove_var(miss);
         assert!(build_decomposer("openai", "gpt-4o", "http://localhost:11434", miss).is_err());
-        assert!(build_decomposer("anthropic", "claude-opus-4-8", "http://localhost:11434", miss).is_err());
+        assert!(build_decomposer(
+            "anthropic",
+            "claude-opus-4-8",
+            "http://localhost:11434",
+            miss
+        )
+        .is_err());
         // Empty api_key_env is also an error for remote providers.
         assert!(build_decomposer("openai", "gpt-4o", "http://localhost:11434", "").is_err());
     }

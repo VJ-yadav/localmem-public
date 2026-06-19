@@ -17,7 +17,6 @@
 use crate::event::{Event, EventKind};
 use crate::event_id::EventId;
 use crate::event_log::EventLog;
-use crate::facts::FactsStore;
 use crate::journal::{Journal, JournalEntry};
 use anyhow::{anyhow, Context, Result};
 use chrono::SecondsFormat;
@@ -85,7 +84,7 @@ pub fn run(home: Option<&str>, fact_id_str: &str, as_json: bool) -> Result<()> {
     let fact_id = EventId::from_str(fact_id_str)
         .map_err(|e| anyhow!("not a valid ULID: {fact_id_str} ({e})"))?;
 
-    let store = FactsStore::open(&home).context("open facts store")?;
+    let store = crate::cli::open_facts(&home)?;
     let fact = store
         .find_by_id(&fact_id)
         .context("look up fact by id")?
@@ -299,6 +298,7 @@ mod tests {
         CapturePayload, FactPayload, ForgetPayload, PolicyAction, Source, UpdatePayload,
     };
     use crate::facts::Fact;
+    use crate::facts::FactsStore;
     use chrono::{DateTime, Utc};
     use serde_json::{Map, Value};
     use tempfile::tempdir;

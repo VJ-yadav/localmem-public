@@ -113,3 +113,29 @@ jobs:
           # silently runs first-stage-only.
           jq -e '.checks[] | select(.name=="reranker") | .status=="pass"' doctor.json \
             || { echo "::error::reranker did not load+score on a clean install"; exit 1; }
+
+      - name: CLI works while the always-on service holds the DB lock (regression)
+        run: |
+          set -euo pipefail
+          export LOCALMEM_HOME="$RUNNER_TEMP/lm"
+          # Start the core so it holds the exclusive DuckDB lock, exactly like
+          # the installed launchd/systemd service does. This is the scenario
+          # that previously made `localmem search` fail with a raw lock error.
+          dl/localmem serve --home "$LOCALMEM_HOME" --addr 127.0.0.1:7788 &
+          SERVE_PID=$!
+          trap 'kill $SERVE_PID 2>/dev/null || true' EXIT
+          for i in $(seq 1 30); do
+            curl -fsS http://127.0.0.1:7788/health >/dev/null 2>&1 && break; sleep 1
+          done
+          # 1. Hybrid search MUST work while the service runs (it routes through
+          #    the server instead of opening DuckDB in-process).
+          dl/localmem search --home "$LOCALMEM_HOME" "what language do I prefer" | grep -qi rust \
+            || { echo "::error::CLI hybrid search failed while the service was running"; exit 1; }
+          # 2. A lock-bound command must surface a clear, actionable message, not
+          #    the raw DuckDB "Conflicting lock" error.
+          dl/localmem audit no-such-id --home "$LOCALMEM_HOME" 2>err.txt || true
+          if grep -qi "Conflicting lock" err.txt; then
+            echo "::error::a command leaked the raw DuckDB lock error instead of a clear message"
+            cat err.txt; exit 1
+          fi
+          echo "service-running CLI regression: OK"

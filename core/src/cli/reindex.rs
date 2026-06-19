@@ -115,7 +115,10 @@ pub async fn reindex_home_sampled(home: &Path, sample: Option<u64>) -> Result<Re
             }
         }
     }
-    let written = batcher.finish().await.context("flush vector batcher after reindex")?;
+    let written = batcher
+        .finish()
+        .await
+        .context("flush vector batcher after reindex")?;
     // `vectors_written` counts queued chunks; reconcile with what actually
     // landed so the stat can never overstate the store (they match in practice).
     stats.vectors_written = written;

@@ -13,7 +13,7 @@ use crate::embed::{Embedder, EMBEDDING_DIM};
 use crate::event::{CapturePayload, Event, EventKind, FactPayload, PolicyAction, Source};
 use crate::event_log::EventLog;
 use crate::extractor::ExtractorRegistry;
-use crate::facts::{Fact, FactsStore};
+use crate::facts::Fact;
 use crate::journal::{Journal, JournalEntry};
 use crate::lexical::{LexicalIndex, LexicalResultExt};
 use crate::policy::{EvalContext, Policy};
@@ -434,7 +434,7 @@ async fn commit_capture(
         .extract(&payload.text, Some(&payload.kind))
         .await
         .context("registry extract")?;
-    let facts_store = FactsStore::open(home).context("open facts store")?;
+    let facts_store = crate::cli::open_facts(home)?;
     let journal = Journal::open(home).context("open journal for contradictions")?;
     let mut count: u32 = 0;
     for ef in &extracted {
@@ -632,6 +632,7 @@ mod tests {
     use super::*;
     use crate::cli::init::init_home;
     use crate::event_log::EVENTS_FILE;
+    use crate::facts::FactsStore;
     use tempfile::tempdir;
 
     /// Disable embedder lookup so tests run fast and offline.
