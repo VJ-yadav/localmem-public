@@ -721,6 +721,14 @@ mod tests {
         // explicit choice failed.
         let tmp = tempdir().unwrap();
         std::env::set_var("LOCALMEM_MODEL_DIR", tmp.path().join("definitely-not-here"));
+        // Force the in-process path: point the server addr at a dead port so the
+        // CLI does not route to a localmem service that happens to be running
+        // (vec/hybrid now route through a live server when one is reachable).
+        std::fs::write(
+            tmp.path().join("config.toml"),
+            "[server]\naddr = \"127.0.0.1:1\"\n",
+        )
+        .unwrap();
         let err = run(
             tmp.path().to_str(),
             "anything",
