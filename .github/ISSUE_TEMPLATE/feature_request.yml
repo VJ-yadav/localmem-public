@@ -1,0 +1,31 @@
+name: Feature request
+description: Suggest an improvement or new capability
+title: "[feat] "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Some changes need a discussion first: new `events.jsonl` event kinds,
+        new MCP tools, or anything touching the local-first and
+        zero-content-telemetry promise. See [CONTRIBUTING.md](../CONTRIBUTING.md).
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What are you trying to do that localmem makes hard today?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: What you have in mind. Rough is fine.
+  - type: checkboxes
+    id: promise
+    attributes:
+      label: Project promise
+      description: Confirm the request respects the non-negotiables.
+      options:
+        - label: This does not require a network call to complete a memory_* operation
+        - label: This does not add content telemetry
