@@ -551,7 +551,7 @@ mod tests {
                 event_id: "01HX2".into(),
                 snippet: "second hit".into(),
                 score: 0.5,
-                sources: vec!["lex", "vec"],
+                sources: vec!["lex".to_string(), "vec".to_string()],
                 valid_from: None,
             },
         ];
@@ -574,7 +574,7 @@ mod tests {
             event_id: "01HX1".into(),
             snippet: "hit".into(),
             score: 0.7,
-            sources: vec!["lex", "vec"],
+            sources: vec!["lex".to_string(), "vec".to_string()],
             valid_from: None,
         }];
         let mut buf = Vec::new();
