@@ -130,6 +130,11 @@ shipped in; the relicense applies forward only.
 
 ## How a review goes
 
+`main` is protected: nobody pushes to it directly, including maintainers
+and collaborators. Every change lands through a pull request from a
+branch (or a fork), is reviewed, and is squash-merged. So the flow is:
+branch, push, open a PR.
+
 1. **CodeRabbit auto-reviews on PR open.** It catches style + sometimes
    logic issues. Address what it raises; you don't need to argue every
    point.

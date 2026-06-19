@@ -1,0 +1,57 @@
+name: Bug report
+description: Something in localmem behaves incorrectly
+title: "[bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. localmem runs on your machine, so a clear
+        reproduction usually lets us see exactly what you see.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you expected, and what actually occurred.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. localmem ...
+        2. ...
+        3. observed ...
+    validations:
+      required: true
+  - type: textarea
+    id: doctor
+    attributes:
+      label: localmem doctor output
+      description: Run `localmem doctor` and paste the output. Redact anything sensitive.
+      render: shell
+  - type: input
+    id: version
+    attributes:
+      label: localmem version
+      description: Output of `localmem --version`
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - macOS (Apple Silicon)
+        - macOS (Intel)
+        - Linux x86_64
+        - Linux aarch64
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: client
+    attributes:
+      label: MCP client (if relevant)
+      placeholder: Claude Code, Cursor, Cline, Windsurf, Claude Desktop, ...

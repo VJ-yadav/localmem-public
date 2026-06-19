@@ -1,0 +1,53 @@
+# CodeRabbit configuration. See https://docs.coderabbit.ai/getting-started/configure-coderabbit
+# House conventions live in CONTRIBUTING.md and CLAUDE.md; this file teaches the
+# bot to enforce them so human review can focus on correctness and the project
+# promise rather than style nits.
+language: en-US
+
+reviews:
+  profile: assertive
+  request_changes_workflow: false
+  high_level_summary: true
+  poem: false
+  review_status: true
+  auto_review:
+    enabled: true
+    drafts: false
+    base_branches:
+      - main
+  # Generated, vendored, and lock files are noise in a review.
+  path_filters:
+    - "!**/*.lock"
+    - "!**/dist/**"
+    - "!**/vendor/**"
+    - "!dashboard/vendor/**"
+    - "!**/*.min.js"
+  path_instructions:
+    - path: "core/**/*.rs"
+      instructions: >-
+        Enforce: anyhow for application errors, thiserror for library errors,
+        never String errors; no panic! outside tests (use Result); tracing
+        macros with structured fields, not println! or string interpolation; no
+        singletons for mutable state (Arc<RwLock> or a resource pool); no
+        hardcoded enums or string constants that belong in policies/*.yaml or
+        config.toml. Flag loudly any new network call on a memory_* path (the
+        local-first promise), and any new events.jsonl event kind or derived
+        store schema change (it must remain rebuildable by localmem replay).
+    - path: "mcp-server/**/*.ts"
+      instructions: >-
+        Imports use .js extensions (MCP SDK convention). Use zod for runtime
+        validation at HTTP boundaries. Keep the dependency surface tiny. The MCP
+        tool surface is deliberately narrow; flag any new tool for discussion.
+    - path: "**/*.md"
+      instructions: >-
+        No em dashes (use commas, periods, or restructure). No emojis unless
+        explicitly requested. Comments and docs explain the non-obvious WHY, not
+        the WHAT.
+
+tone_instructions: >-
+  Be concise and direct. Match the project's no-em-dashes, no-emoji house style.
+  Prioritize correctness, the local-first and zero-content-telemetry promise,
+  and the Apache-2.0 editions split over style nitpicks.
+
+chat:
+  auto_reply: true
