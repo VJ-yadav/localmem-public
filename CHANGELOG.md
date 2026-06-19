@@ -3,6 +3,15 @@
 Notable changes to the localmem Community Edition. Per-release detail is also on
 the [GitHub Releases page](https://github.com/VJ-yadav/localmem-community/releases).
 
+## 0.3.4
+
+- Fix the npm package's core-install URL: `npx localmem-mcp install` now fetches
+  the installer from `https://localmem.org/install` (was a stale `localmem.co`).
+- Documentation and install instructions standardized on the one-command
+  `localmem setup` flow and the `localmem.org` domain.
+- Add `scripts/bump-version.mjs` so a release updates every version location in
+  one command.
+
 ## 0.3.3
 
 - Hybrid retrieval reranking and MMR are on by default. The cross-encoder
