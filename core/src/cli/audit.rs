@@ -85,7 +85,7 @@ pub fn run(home: Option<&str>, fact_id_str: &str, as_json: bool) -> Result<()> {
     let fact_id = EventId::from_str(fact_id_str)
         .map_err(|e| anyhow!("not a valid ULID: {fact_id_str} ({e})"))?;
 
-    let store = FactsStore::open(&home).context("open facts store")?;
+    let store = crate::cli::open_facts(&home)?;
     let fact = store
         .find_by_id(&fact_id)
         .context("look up fact by id")?

@@ -111,7 +111,7 @@ pub async fn replay_home(home: &Path) -> Result<ReplayStats> {
         None
     };
     let mut lexical = LexicalIndex::open(home).lex_context("open lexical index")?;
-    let facts = FactsStore::open(home).context("open facts store")?;
+    let facts = crate::cli::open_facts(home)?;
     let journal = Journal::open(home).context("open journal")?;
     let policy = Policy::load(home).context("load policy")?;
 
@@ -322,7 +322,10 @@ pub async fn replay_home(home: &Path) -> Result<ReplayStats> {
     // Drain any chunks still buffered in the batcher (the final partial embed
     // pass + flush). Skipped silently if no embedder was available.
     if let Some(b) = batcher {
-        let written = b.finish().await.context("flush vector batcher after replay")?;
+        let written = b
+            .finish()
+            .await
+            .context("flush vector batcher after replay")?;
         info!(vectors_written = written, "replay: vector store rebuilt");
     }
     lexical

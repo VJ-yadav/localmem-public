@@ -434,7 +434,7 @@ async fn commit_capture(
         .extract(&payload.text, Some(&payload.kind))
         .await
         .context("registry extract")?;
-    let facts_store = FactsStore::open(home).context("open facts store")?;
+    let facts_store = crate::cli::open_facts(home)?;
     let journal = Journal::open(home).context("open journal for contradictions")?;
     let mut count: u32 = 0;
     for ef in &extracted {

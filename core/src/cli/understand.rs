@@ -183,7 +183,7 @@ pub fn run_rebuild_graph(home: Option<&str>) -> Result<()> {
 
     let home = resolve_home(home);
     let event_log = EventLog::open(&home).context("open event log")?;
-    let facts = FactsStore::open(&home).context("open facts store")?;
+    let facts = crate::cli::open_facts(&home)?;
     facts
         .clear_entity_mentions()
         .context("clear entity mentions before rebuild")?;
