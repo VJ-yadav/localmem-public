@@ -7,7 +7,7 @@
 //! does, what it costs (nothing), and what it touches (only your machine). It
 //! NEVER auto-installs Ollama or pulls a model without the user running the
 //! shown command: installing a third-party runtime silently is exactly the
-//! anti-pattern we rejected (see SPEC-unified-memory-layer Decision D).
+//! anti-pattern we rejected (a deliberate design decision).
 
 use crate::understanding::{installed_models, resolve_model, ModelResolution};
 use anyhow::{Context, Result};

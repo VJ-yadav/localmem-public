@@ -1,10 +1,10 @@
-//! The async understanding worker (SPEC-unified-memory-layer 7c, Output A) and
+//! The async understanding worker (the unified memory-layer design, Output A) and
 //! the shared fact-persistence path it uses.
 //!
 //! `understand_worker` mirrors `embed_worker`: it pulls committed captures off
 //! a bounded queue, runs the LLM [`Decomposer`] OFF the write path, and
 //! persists the resulting facts. It never runs inside a hook and never blocks a
-//! write, so the recursion + latency scar (agentmemory #149) cannot recur. A
+//! write, so the recursion + latency scar (a self-triggering hook) cannot recur. A
 //! failed decomposition is logged and skipped; the raw capture remains the
 //! source of truth, so the understanding is recoverable by re-running the pass.
 //!

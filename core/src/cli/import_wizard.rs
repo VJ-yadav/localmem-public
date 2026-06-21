@@ -8,7 +8,7 @@
 //! v0.2 first cut covers the two sources that already have working
 //! importers: ChatGPT exports (`conversations.json` from the OpenAI
 //! "Export data" feature) and Claude exports. Obsidian, Notion,
-//! Memento, Mem0, Supermemory are deferred to v0.2.1 — they need
+//! other-tool importers are deferred to v0.2.1 — they need
 //! their own importer modules first.
 //!
 //! Detection is conservative: we identify a candidate by its file

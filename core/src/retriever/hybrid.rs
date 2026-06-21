@@ -83,7 +83,7 @@ pub fn apply_recency_bonus(score: f32, ts: DateTime<Utc>, now: DateTime<Utc>, we
 ///
 /// The half-life form `0.5^(age/H)` makes the bonus exactly half its
 /// fresh value at age=H, which matches the SPEC_V0_2 phrasing and
-/// Memento's per-kind half-lives. Both forms agree at age=0 (both
+/// per-kind half-lives. Both forms agree at age=0 (both
 /// return `weight`) so a 0-age fact's bonus is identical regardless
 /// of which path applies.
 pub fn apply_recency_bonus_kind(

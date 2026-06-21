@@ -88,7 +88,7 @@ pub enum EventKind {
     Policy(PolicyPayload),
     /// Bulk ingest from another system.
     Import(ImportPayload),
-    /// Layer 2 understanding (SPEC-unified-memory-layer 7c): the LLM's
+    /// Layer 2 understanding (the unified memory-layer design): the LLM's
     /// decomposition of a capture into a summary + intent + typed entities,
     /// derived asynchronously OFF the write path. Append-only and immutable
     /// like every event: re-running a better model emits a NEW understanding
@@ -154,7 +154,7 @@ pub struct CapturePayload {
     /// priority over `extra` so the typed field is restored.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub tags: BTreeMap<String, String>,
-    /// Temporal envelope (P1, SPEC-temporal-foundation). Timezone-correct,
+    /// Temporal envelope (timezone-correct temporal envelope). Timezone-correct,
     /// precision-aware time. Native captures fill it fully; imports fill what
     /// the source provides. Absent on legacy v0.1/v0.2 captures and on native
     /// captures written before this shipped; the read path falls back to the

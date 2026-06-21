@@ -707,7 +707,11 @@ pub(crate) async fn synthesize_project_briefing(
         )
     })?;
     let now = Utc::now();
-    let scope = project_scope((!project.is_empty()).then_some(project), true);
+    // Strict per-project: facts must carry THIS project's tag. include_global was
+    // pulling untagged/global facts into every project's briefing (e.g. localmem's
+    // own notes leaked into a StudentHousing brief). Understandings are already
+    // strict (gather_understandings), so this aligns facts with them.
+    let scope = project_scope((!project.is_empty()).then_some(project), false);
     let mut facts = {
         let guard = state.facts.lock().await;
         guard
@@ -3414,13 +3418,14 @@ mod tests {
     // immediately; /drain blocks until the worker has flushed the backlog, after
     // which the vector store holds the capture's row. Requires the real model;
     // skips on CI where it is absent.
+    //
     // Flaky and environment-gated: ensure_model downloads/caches the embedder,
     // and a partial cache or async worker-init timing can leave embed_tx unset,
     // so it reds the gate nondeterministically. The async-embed -> vector path is
     // covered end to end by the release clean-room smoke. Run explicitly with
     // `cargo test -- --ignored` while stabilizing this separately.
-    #[tokio::test]
     #[ignore = "flaky: model-download-gated + worker-init race; covered by smoke"]
+    #[tokio::test]
     async fn async_embed_lands_in_vector_store_after_drain() {
         let Some(model_dir) = crate::embed::test_assets::ensure_model() else {
             eprintln!("{}", crate::embed::test_assets::skip_reason());

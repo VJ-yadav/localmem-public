@@ -5,9 +5,10 @@
 //! short-lived process: Claude Code runs it, pipes the event JSON on stdin, and
 //! (for context-injecting events) reads our stdout back as additional context.
 //!
+//! Design rules (see the design docs):
 //! - **Never spawn an LLM.** We only write/read via the fast local core, so a
 //!   hook can never re-trigger the agent — no Stop-hook recursion (the bug
-//!   agentmemory shipped with).
+//!   the naive version shipped with).
 //! - **Smart capture, not everything.** Prompts + decisions are permanent;
 //!   tool-use is a compact ephemeral `trace` that auto-expires, so memory stays
 //!   signal not noise.

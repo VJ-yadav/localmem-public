@@ -18,8 +18,13 @@ use std::net::SocketAddr;
 use std::path::PathBuf;
 use tracing::info;
 
+/// Version string with build provenance: the crate semver plus the git short
+/// SHA stamped by build.rs. So `localmem --version` always resolves to an exact
+/// commit, which is the cure for "we don't know what binary is running".
+const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), " (", env!("LOCALMEM_GIT_SHA"), ")");
+
 #[derive(Parser, Debug)]
-#[command(name = "localmem", version, about = "Local-first AI memory layer")]
+#[command(name = "localmem", version = VERSION, about = "Local-first AI memory layer")]
 struct Cli {
     #[command(subcommand)]
     command: Command,
@@ -61,7 +66,7 @@ enum Command {
         #[arg(long, value_name = "K=V[,K=V...]")]
         tags: Option<String>,
 
-        /// Closed-core kind taxonomy. One of `fact`,
+        /// Closed-core kind taxonomy (T-52). One of `fact`,
         /// `preference`, `decision`, `constraint`, `todo`, `note`.
         /// Any other value round-trips as an extension kind (treated
         /// as `note` for behavioral purposes; preserved for replay).
@@ -99,7 +104,7 @@ enum Command {
         k: usize,
 
         /// Retrieval mode. `hybrid` (default) blends BM25 + ANN via RRF
-        /// with optional bitemporal filter. `lex` is BM25-only,
+        /// with optional bitemporal filter (T-23). `lex` is BM25-only,
         /// useful for exact-term recall. `vec` shares the hybrid path in
         /// v0.1; a pure vector-only short-circuit is reserved for later.
         #[arg(long, value_enum, default_value_t = SearchMode::Hybrid)]
@@ -111,7 +116,7 @@ enum Command {
         #[arg(long, value_name = "RFC3339")]
         at_time: Option<String>,
 
-        /// Tag filter as a comma-separated `key=value` list. A
+        /// Tag filter as a comma-separated `key=value` list (T-51). A
         /// hit passes when every pair matches the capture's tags.
         /// Example: `--tags project=localmem,topic=async`.
         #[arg(long, value_name = "K=V[,K=V...]")]
@@ -124,14 +129,14 @@ enum Command {
         #[arg(long)]
         project: Option<String>,
 
-        /// Kind filter. Restrict to one of the closed-core
+        /// Kind filter (T-52b). Restrict to one of the closed-core
         /// kinds (`fact`, `preference`, `decision`, `constraint`,
         /// `todo`, `note`) or an extension kind string. Drops hits
         /// whose stored kind doesn't match exactly.
         #[arg(long)]
         kind: Option<String>,
 
-        /// Todo `done` filter. Pairs with `--kind todo`
+        /// Todo `done` filter (T-52b). Pairs with `--kind todo`
         /// (though it works on any capture). `--done false` returns
         /// only open todos; `--done true` returns only completed
         /// ones; unset disables the filter.
@@ -151,7 +156,7 @@ enum Command {
         #[arg(long, value_name = "RFC3339")]
         at_time: Option<String>,
 
-        /// Tag filter as a comma-separated `key=value` list. A
+        /// Tag filter as a comma-separated `key=value` list (T-51b). A
         /// fact passes when every pair matches the tags inherited from
         /// its source capture. Example: `--tags project=localmem`.
         #[arg(long, value_name = "K=V[,K=V...]")]
@@ -167,7 +172,7 @@ enum Command {
         #[arg(long)]
         scope: Option<String>,
 
-        /// Tag filter as a comma-separated `key=value` list.
+        /// Tag filter as a comma-separated `key=value` list (T-51b).
         /// Composes with `--scope` via AND semantics. Example:
         /// `--tags project=localmem,topic=auth`.
         #[arg(long, value_name = "K=V[,K=V...]")]
@@ -339,7 +344,7 @@ enum Command {
         json: bool,
     },
 
-    /// Wire localmem into MCP-compatible AI clients
+    /// Wire localmem into MCP-compatible AI clients (T-50)
     Mcp {
         #[command(subcommand)]
         action: McpAction,
@@ -352,21 +357,21 @@ enum Command {
         action: HooksAction,
     },
 
-    /// List distinct entity subjects in the facts table with row counts.
+    /// List distinct entity subjects in the facts table with row counts (T-53).
     Subjects {
         /// Emit results as a single JSON object on stdout.
         #[arg(long)]
         json: bool,
     },
 
-    /// List container tags in use across captures with counts.
+    /// List container tags in use across captures with counts (T-53).
     Tags {
         /// Emit results as a single JSON object on stdout.
         #[arg(long)]
         json: bool,
     },
 
-    /// Show the last N captures, newest first.
+    /// Show the last N captures, newest first (T-53).
     Recent {
         /// Maximum number of captures to return. SPEC default is 20.
         #[arg(long, default_value_t = recent::DEFAULT_LIMIT)]
@@ -377,7 +382,7 @@ enum Command {
         json: bool,
     },
 
-    /// Synthesized brief over the (optionally tag/kind-filtered) memory store.
+    /// Synthesized brief over the (optionally tag/kind-filtered) memory store (T-53).
     Summarize {
         /// Tag filter as a comma-separated `key=value` list.
         #[arg(long, value_name = "K=V[,K=V...]")]
@@ -394,7 +399,7 @@ enum Command {
     },
 
     /// Download a registered ML model into `<home>/models/<slug>/`
-    ///. Default is the BGE-small embedder that vector search
+    /// (T-62). Default is the BGE-small embedder that vector search
     /// needs. SHA-256 verified when the registry hash is armed.
     /// Idempotent: existing files that verify are skipped.
     /// `--dry-run` reports what would happen without downloading.
@@ -439,7 +444,7 @@ enum Command {
     },
 
     /// Trace a fact back to its source capture, journal entries, and any
-    /// follow-up forget/update events.
+    /// follow-up forget/update events (T-53).
     Audit {
         /// Fact event id (ULID).
         fact_id: String,
@@ -449,7 +454,7 @@ enum Command {
         json: bool,
     },
 
-    /// Flip the done state of a todo-kind capture. Emits an
+    /// Flip the done state of a todo-kind capture (T-52b). Emits an
     /// `UpdateCapture` event so the event log stays append-only and
     /// `localmem replay` reconstructs the latest state. The CLI
     /// refuses non-todo captures so the flag never lands on a kind
@@ -459,7 +464,7 @@ enum Command {
         action: TodoAction,
     },
 
-    /// Run a per-check diagnostic of the install.
+    /// Run a per-check diagnostic of the install (T-48).
     /// Reports PASS/WARN/FAIL for: binary on PATH, home initialised,
     /// embedder model, server reachable, macOS Gatekeeper, MCP wiring
     /// per client. `--fix` auto-applies safe fixes (currently only

@@ -193,11 +193,11 @@ impl Default for ExtractorSection {
     }
 }
 
-/// Layer 2 understanding worker (SPEC-unified-memory-layer 7c). When `enabled`,
+/// Layer 2 understanding worker (the unified memory-layer design). When `enabled`,
 /// the server spawns an async worker that decomposes each committed capture via
 /// a local LLM (summary + intent + entities + richer facts) OFF the write path.
 /// Disabled by default so a fresh install does no LLM work and needs no model:
-/// raw capture + search stay fully functional with zero inference (MOAT #4).
+/// raw capture + search stay fully functional with zero inference (the local-first promise).
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(default)]
 pub struct UnderstandingSection {
@@ -220,7 +220,7 @@ pub struct UnderstandingSection {
     /// Decomposition backend (intelligence v2, P1). `ollama` (default, local,
     /// private, offline) | `openai` | `anthropic`. A remote provider sends
     /// capture text off-machine using the user's OWN key (named by
-    /// `api_key_env`) — an explicit per-user opt-in (MOAT #5), not a default.
+    /// `api_key_env`) — an explicit per-user opt-in (the no-plaintext-leaves-the-machine promise), not a default.
     /// Same `Decomposer` interface for all; on remote failure the worker falls
     /// back to local so understanding never hard-fails on a network blip.
     pub provider: String,
@@ -272,7 +272,7 @@ pub struct RetrieverSection {
     /// captures whose kind is in this map; unknown kinds or empty
     /// strings fall back to the legacy uniform exp-decay
     /// (`exp(-age_days / 30)`) so backwards compat is preserved.
-    /// Defaults follow Memento's `docs/architecture/decay-and-supersession.md`:
+    /// Defaults follow a standard decay-and-supersession model:
     /// fact=90d, preference=180d, decision=365d, constraint=180d,
     /// todo=14d, note=30d.
     pub decay_half_life: std::collections::BTreeMap<String, String>,

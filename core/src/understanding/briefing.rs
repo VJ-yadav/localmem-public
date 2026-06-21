@@ -1,4 +1,4 @@
-//! The Session Boot Briefing (SPEC-unified-memory-layer 7c, Output B).
+//! The Session Boot Briefing (the unified memory-layer design, Output B).
 //!
 //! A synthesized, ranked, current-state-first digest of a project's memory,
 //! built to REPLACE the raw top-k search dump that SessionStart used to inject

@@ -42,7 +42,7 @@ pub mod retriever; //    Integration: hybrid retriever (T-23)
 pub mod rewriter; //     Phase 5C: context rewriting at ingest (T-55)
 pub mod server; //       Group E: local axum HTTP server (T-19 to T-22)
 pub mod tag_match; //    Phase 5B: shared tag subset-match (T-51b)
-pub mod temporal; //     P1: timezone-correct temporal envelope (SPEC-temporal-foundation)
+pub mod temporal; //     P1: timezone-correct temporal envelope
 pub mod tokens; //       P7: North Star token accounting (real, model-correct counts)
 pub mod understanding; // Layer 2: async per-capture decomposition + synthesis (SPEC 7c)
 pub mod vectors; //      Group B: LanceDB ANN index (T-09)

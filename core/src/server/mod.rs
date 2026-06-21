@@ -638,6 +638,9 @@ pub fn router_with_dashboard(state: Arc<AppState>) -> Router {
         .route("/app.js", get(dashboard_app_js))
         .route("/styles.css", get(dashboard_styles))
         .route("/vendor/cytoscape.min.js", get(dashboard_cytoscape))
+        .route("/vendor/layout-base.js", get(dashboard_layout_base))
+        .route("/vendor/cose-base.js", get(dashboard_cose_base))
+        .route("/vendor/cytoscape-fcose.js", get(dashboard_fcose))
 }
 
 // Dashboard assets are embedded in the binary (single-binary install), so
@@ -674,6 +677,39 @@ async fn dashboard_cytoscape() -> impl IntoResponse {
             "text/javascript; charset=utf-8",
         )],
         include_str!("../../../dashboard/vendor/cytoscape.min.js"),
+    )
+}
+
+/// fcose force-directed layout (MIT) + its cose-base/layout-base deps, vendored
+/// so the graph auto-arranges cleanly offline. Loaded in dependency order before
+/// app.js; app.js registers fcose and falls back to built-in cose if absent.
+async fn dashboard_layout_base() -> impl IntoResponse {
+    (
+        [(
+            axum::http::header::CONTENT_TYPE,
+            "text/javascript; charset=utf-8",
+        )],
+        include_str!("../../../dashboard/vendor/layout-base.js"),
+    )
+}
+
+async fn dashboard_cose_base() -> impl IntoResponse {
+    (
+        [(
+            axum::http::header::CONTENT_TYPE,
+            "text/javascript; charset=utf-8",
+        )],
+        include_str!("../../../dashboard/vendor/cose-base.js"),
+    )
+}
+
+async fn dashboard_fcose() -> impl IntoResponse {
+    (
+        [(
+            axum::http::header::CONTENT_TYPE,
+            "text/javascript; charset=utf-8",
+        )],
+        include_str!("../../../dashboard/vendor/cytoscape-fcose.js"),
     )
 }
 

@@ -1,4 +1,4 @@
-//! Layer 2: the understanding layer (SPEC-unified-memory-layer 7c).
+//! Layer 2: the understanding layer (the unified memory-layer design).
 //!
 //! Layer 1 (events.jsonl) is the lossless source of truth. This layer sits on
 //! TOP of it and is entirely DERIVED + recomputable by `localmem replay`. It
@@ -11,7 +11,7 @@
 //! Two invariants hold for everything in here:
 //!
 //! * It runs ASYNC, off the write path, NEVER inside a capture hook (the
-//!   agentmemory recursion scar). The hook stays a dumb-fast raw write.
+//!   hook-recursion footgun). The hook stays a dumb-fast raw write.
 //! * It is platform-agnostic. It only ever sees capture text plus an opaque
 //!   `source` label, so an ever-expanding set of AI tools all flow through the
 //!   same path with no per-tool branching.

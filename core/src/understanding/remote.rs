@@ -3,7 +3,7 @@
 //! Same [`Decomposer`] interface as the local Ollama path, so the worker is
 //! backend-agnostic. The user supplies their OWN key (named by
 //! `[understanding].api_key_env`), so capture text leaves the machine ONLY on
-//! this explicit per-user opt-in (MOAT #5) — the Community default stays local.
+//! this explicit per-user opt-in (the no-plaintext-leaves-the-machine promise) — the Community default stays local.
 //!
 //! Failure policy (deliberate): a remote error does NOT silently fall back to
 //! the local model. A user who opted into a frontier key did so because the

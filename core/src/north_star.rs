@@ -6,7 +6,7 @@
 //! token count it served, the result count, the accounting model, and the
 //! dollar cost. That is ALL it records: NO query text, NO content, NO snippets.
 //! It is content-free usage telemetry, local-only, so it never violates the
-//! no-plaintext-leaves-the-machine promise (MOAT 5).
+//! no-plaintext-leaves-the-machine promise.
 //!
 //! It lives at `<home>/north_star.jsonl`, NOT under `derived/`, because it is a
 //! record of READS, not of memory, so it is not recomputable from the event log
@@ -33,7 +33,7 @@ struct Record {
 
 /// Append one retrieval to the usage log. Best-effort and content-free: any IO
 /// or serialization failure is swallowed, because telemetry must never fail a
-/// search (MOAT 4: no read path depends on this succeeding).
+/// search (local-first: no read path depends on this succeeding).
 pub fn record_retrieval(
     home: &Path,
     tokens: usize,

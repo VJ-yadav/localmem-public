@@ -1,7 +1,7 @@
 //! Temporal envelope: timezone-correct, precision-aware time for every capture
 //! and fact.
 //!
-//! Invariant (MOAT promises #1/#2 applied to time): the IMMUTABLE original is
+//! Invariant (the immutable-log + recomputable-derived invariants applied to time): the IMMUTABLE original is
 //! `local_wall` + `iana_zone` (+ `offset`). `instant_utc` and `interval` are
 //! DERIVED and recomputable by `localmem replay` when the IANA tz database
 //! changes. Store the original, derive the rest. A bare UTC instant is never
