@@ -66,6 +66,11 @@ export const JournalInput = z.object({
 });
 export type JournalInput = z.infer<typeof JournalInput>;
 
+export const GetInput = z.object({
+  event_id: z.string().min(1),
+});
+export type GetInput = z.infer<typeof GetInput>;
+
 // ---- Responses -------------------------------------------------------------
 
 const WriteResponse = z.object({
@@ -135,6 +140,46 @@ const JournalResponse = z.object({
   entries: z.array(JournalEntry),
 });
 export type JournalResponse = z.infer<typeof JournalResponse>;
+
+// memory_get: expand a hit (event_id) into the FULL memory + its understanding.
+const UnderstandingView = z.object({
+  summary: z.string(),
+  intent: z.string(),
+  entities: z.array(z.object({ name: z.string(), kind: z.string() })),
+  references: z.array(z.string()),
+  salience: z.string(),
+});
+const GetResponse = z.object({
+  ok: z.literal(true),
+  event_id: z.string(),
+  found: z.boolean(),
+  content: z.string().optional(),
+  valid_from: z.string().optional(),
+  understanding: UnderstandingView.optional(),
+});
+export type GetResponse = z.infer<typeof GetResponse>;
+
+// memory_status: health + decomposition backlog. Mirrors the core `/stats`
+// shape; zod strips the dashboard-only fields we don't surface to the agent.
+const StatusResponse = z.object({
+  ok: z.literal(true),
+  events: z.number().int().nonnegative(),
+  captures: z.number().int().nonnegative(),
+  understandings: z.number().int().nonnegative(),
+  subjects: z.number().int().nonnegative(),
+  entities: z.number().int().nonnegative(),
+  coverage: z.object({
+    decomposed: z.number().int().nonnegative(),
+    signal: z.number().int().nonnegative(),
+    percent: z.number().int().nonnegative(),
+  }),
+  understanding: z.object({
+    enabled: z.boolean(),
+    provider: z.string().nullable().optional(),
+    model: z.string().nullable().optional(),
+  }),
+});
+export type StatusResponse = z.infer<typeof StatusResponse>;
 
 // ---- Resources (T-54) ------------------------------------------------------
 
@@ -229,4 +274,6 @@ export const Responses = {
   Profile: ProfileResponse,
   Forget: ForgetResponse,
   Journal: JournalResponse,
+  Get: GetResponse,
+  Status: StatusResponse,
 };

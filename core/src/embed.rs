@@ -41,6 +41,29 @@ const MAX_SEQUENCE_LENGTH: usize = 512;
 pub const MODEL_FILENAME: &str = "model.onnx";
 pub const TOKENIZER_FILENAME: &str = "tokenizer.json";
 
+/// Resolve the embedder model directory: `LOCALMEM_MODEL_DIR` if set, else the
+/// install-layout default `<home>/models/bge-small-en-v1.5/`. THE one resolver
+/// every surface routes through — status, doctor, search, the server load path
+/// — so they can never disagree about where the model lives. (That disagreement
+/// was the bug where `status` reported the embedder "absent" while `doctor`
+/// reported it "present": two different path constructions.)
+pub fn resolve_model_dir(home: &std::path::Path) -> std::path::PathBuf {
+    if let Ok(dir) = std::env::var("LOCALMEM_MODEL_DIR") {
+        if !dir.is_empty() {
+            return std::path::PathBuf::from(dir);
+        }
+    }
+    home.join("models").join("bge-small-en-v1.5")
+}
+
+/// True when the embedder model is fully present (both `model.onnx` and
+/// `tokenizer.json`) at the resolved model dir. The single presence check shared
+/// by `status` and `doctor`.
+pub fn model_present(home: &std::path::Path) -> bool {
+    let dir = resolve_model_dir(home);
+    dir.join(MODEL_FILENAME).is_file() && dir.join(TOKENIZER_FILENAME).is_file()
+}
+
 /// Local embedder backed by ONNX Runtime and a HuggingFace tokenizer.
 ///
 /// One instance per process is sufficient. [`Session`] is thread-safe under

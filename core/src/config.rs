@@ -575,6 +575,35 @@ impl Config {
                 self.retriever.mmr_lambda = Some(v);
             }
         }
+        // Understanding backend as env overrides: flip the decomposition
+        // provider/model/key-env without editing config.toml — e.g. temporarily
+        // switch a low-RAM machine from local Ollama to a cloud key for a one-shot
+        // backfill, then switch back, or run an ephemeral home on a chosen backend.
+        // Makes the documented LOCALMEM_<SECTION>_<KEY> convention real for the
+        // understanding section. Empty values are ignored so an exported-but-blank
+        // var never blanks a configured field.
+        if let Ok(s) = std::env::var("LOCALMEM_UNDERSTANDING_ENABLED") {
+            match s.trim().to_ascii_lowercase().as_str() {
+                "1" | "true" | "yes" | "on" => self.understanding.enabled = true,
+                "0" | "false" | "no" | "off" => self.understanding.enabled = false,
+                _ => {}
+            }
+        }
+        if let Ok(s) = std::env::var("LOCALMEM_UNDERSTANDING_PROVIDER") {
+            if !s.trim().is_empty() {
+                self.understanding.provider = s.trim().to_string();
+            }
+        }
+        if let Ok(s) = std::env::var("LOCALMEM_UNDERSTANDING_MODEL") {
+            if !s.trim().is_empty() {
+                self.understanding.model = s.trim().to_string();
+            }
+        }
+        if let Ok(s) = std::env::var("LOCALMEM_UNDERSTANDING_API_KEY_ENV") {
+            if !s.trim().is_empty() {
+                self.understanding.api_key_env = s.trim().to_string();
+            }
+        }
         self
     }
 }
@@ -677,6 +706,30 @@ mode = "regex"
         let cfg = Config::load(tmp.path()).unwrap();
         std::env::remove_var("LOCALMEM_REWRITER_MODE");
         assert_eq!(cfg.rewriter.mode, "none");
+    }
+
+    #[test]
+    fn understanding_backend_env_vars_override_disk() {
+        // The low-RAM switch: flip the decomposition backend from local Ollama to
+        // a cloud key for a one-shot backfill without editing config.toml.
+        let tmp = tempdir().unwrap();
+        std::fs::write(
+            tmp.path().join(CONFIG_FILE),
+            "[understanding]\nenabled = true\nprovider = \"ollama\"\nmodel = \"llama3.2:3b\"\n",
+        )
+        .unwrap();
+        std::env::set_var("LOCALMEM_UNDERSTANDING_PROVIDER", "openai");
+        std::env::set_var("LOCALMEM_UNDERSTANDING_MODEL", "gpt-4o-mini");
+        let cfg = Config::load(tmp.path()).unwrap();
+        std::env::remove_var("LOCALMEM_UNDERSTANDING_PROVIDER");
+        std::env::remove_var("LOCALMEM_UNDERSTANDING_MODEL");
+        assert_eq!(cfg.understanding.provider, "openai");
+        assert_eq!(cfg.understanding.model, "gpt-4o-mini");
+        // An empty override must NOT blank a configured value.
+        std::env::set_var("LOCALMEM_UNDERSTANDING_PROVIDER", "");
+        let cfg2 = Config::load(tmp.path()).unwrap();
+        std::env::remove_var("LOCALMEM_UNDERSTANDING_PROVIDER");
+        assert_eq!(cfg2.understanding.provider, "ollama");
     }
 
     #[test]

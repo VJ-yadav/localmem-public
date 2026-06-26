@@ -12,13 +12,16 @@ use std::time::Duration;
 pub fn run(home: Option<&str>, core_addr: &str, as_json: bool) -> Result<()> {
     let home_path = resolve_home(home)?;
     let initialized = home_path.join(crate::event_log::EVENTS_FILE).exists();
-    let model_present = home_path
-        .join("models")
-        .join(crate::embed::MODEL_FILENAME)
-        .exists();
+    let model_present = crate::embed::model_present(&home_path);
     let server_up = probe_health(core_addr);
     let events = count_events(&home_path);
     let entities = count_entities(&home_path);
+    // Decomposition backlog: how much SIGNAL the understanding layer has actually
+    // processed. Read straight from the event log (not the DuckDB facts store), so
+    // it stays accurate even while the running service holds the facts lock — and
+    // a backlog that built up while the LLM backend was off is visible here, not
+    // just in `localmem understand` or the dashboard.
+    let coverage = compute_coverage(&home_path);
     // The AI tools wired to localmem. They all read/write this one store via the
     // core, so surfacing them is what makes the shared-memory model legible.
     let tools = crate::cli::mcp::wired_clients(None);
@@ -35,6 +38,10 @@ pub fn run(home: Option<&str>, core_addr: &str, as_json: bool) -> Result<()> {
                 "model_present": model_present,
                 "events": events,
                 "entities": entities,
+                "decomposed": coverage.decomposed,
+                "signal_captures": coverage.signal_captures,
+                "undecomposed": coverage.undecomposed(),
+                "coverage_percent": coverage.percent(),
                 "tools": tools,
             })
         );
@@ -54,7 +61,29 @@ pub fn run(home: Option<&str>, core_addr: &str, as_json: bool) -> Result<()> {
         println!("  embedder   absent — lexical-only (run `localmem fetch-model`)");
     }
     println!("  events     {events}");
-    println!("  entities   {entities}");
+    match entities {
+        Some(n) => println!("  entities   {n}"),
+        None => println!(
+            "  entities   unavailable (the running service holds the database — see the dashboard)"
+        ),
+    }
+    // Only speak up when there is signal to decompose; an empty store owes nothing.
+    if coverage.signal_captures > 0 {
+        if coverage.undecomposed() > 0 {
+            println!(
+                "  decomp     {}/{} understood ({}%) — {} undecomposed; run `localmem understand --backfill`",
+                coverage.decomposed,
+                coverage.signal_captures,
+                coverage.percent(),
+                coverage.undecomposed(),
+            );
+        } else {
+            println!(
+                "  decomp     {}/{} understood (100%)",
+                coverage.decomposed, coverage.signal_captures,
+            );
+        }
+    }
     if tools.is_empty() {
         println!("  tools      none wired yet — `localmem setup` connects your AI apps");
     } else {
@@ -73,7 +102,7 @@ pub fn run(home: Option<&str>, core_addr: &str, as_json: bool) -> Result<()> {
 fn probe_health(core_addr: &str) -> bool {
     let url = format!("http://{core_addr}/health");
     let client = ureq::AgentBuilder::new()
-        .timeout(Duration::from_millis(300))
+        .timeout(Duration::from_millis(1000))
         .build();
     matches!(client.get(&url).call(), Ok(r) if r.status() == 200)
 }
@@ -88,18 +117,33 @@ fn count_events(home: &Path) -> u64 {
         .unwrap_or(0)
 }
 
-/// Count distinct fact subjects without creating the DuckDB store
-/// (returns 0 if no facts have been derived yet).
-fn count_entities(home: &Path) -> u64 {
+/// Count distinct fact subjects. `Some(0)` when no facts exist yet; `None` when
+/// the store can't be read (e.g. the running service holds the DuckDB write
+/// lock). Returning `None` instead of `0` kills the silent-degrade where status
+/// showed `entities 0` while facts.duckdb held thousands of subjects.
+fn count_entities(home: &Path) -> Option<u64> {
     let facts_path = home
         .join(crate::facts::FACTS_DIR)
         .join(crate::facts::FACTS_FILE);
     if !facts_path.exists() {
-        return 0;
+        return Some(0);
     }
     crate::facts::FactsStore::open(home)
         .and_then(|store| Ok(store.subjects()?.len() as u64))
-        .unwrap_or(0)
+        .ok()
+}
+
+/// Decomposition coverage straight from the event log (returns an empty/full
+/// coverage if not initialized). Reads only the append-only `events.jsonl`, so it
+/// never touches the DuckDB facts store the running service locks.
+fn compute_coverage(home: &Path) -> crate::understanding::Coverage {
+    if !home.join(crate::event_log::EVENTS_FILE).exists() {
+        return crate::understanding::compute_coverage(std::iter::empty());
+    }
+    match crate::event_log::EventLog::open(home).and_then(|log| Ok(log.iter()?)) {
+        Ok(iter) => crate::understanding::compute_coverage(iter.filter_map(|r| r.ok())),
+        Err(_) => crate::understanding::compute_coverage(std::iter::empty()),
+    }
 }
 
 fn resolve_home(override_: Option<&str>) -> Result<PathBuf> {

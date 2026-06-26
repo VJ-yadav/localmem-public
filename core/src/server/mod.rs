@@ -516,6 +516,14 @@ async fn backfill_missing_vectors(
         let EventKind::Capture(payload) = &event.kind else {
             continue;
         };
+        // Parity with the write path and replay: ephemeral tool-traces never
+        // enter the vector store. Without this the backfill re-embeds the exact
+        // [Bash]/[Read]/trace noise those paths correctly skip — they have no
+        // vector, so they look "missing" — re-polluting search after a clean
+        // replay. (The retrieval-hygiene rule lives in one place: is_ephemeral.)
+        if payload.is_ephemeral() {
+            continue;
+        }
         let id = event.id.to_string();
         if existing.contains(&id) {
             continue;
@@ -608,6 +616,7 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/north-star", get(routes::north_star))
         .route("/getting-started", get(routes::getting_started))
         .route("/recall", post(routes::recall))
+        .route("/get", post(routes::get))
         .route("/profile", post(routes::profile))
         .route("/profile/grouped", post(routes::profile_grouped))
         .route("/review", post(routes::review))

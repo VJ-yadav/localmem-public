@@ -165,7 +165,7 @@ async function resolveLocalmemBinary(args: ParsedArgs): Promise<string> {
   if (args.skipDownload) {
     fail(
       "no localmem binary found on PATH and --skip-download was set. " +
-        "Install localmem first (https://localmem.org/install) or rerun without --skip-download.",
+        "Install localmem first (https://localmem.co/install) or rerun without --skip-download.",
     )
   }
 
@@ -192,7 +192,7 @@ async function downloadLocalmem(): Promise<string> {
   // would otherwise have to re-implement them here and drift.
   log("no localmem binary found. Downloading via install.sh ...")
   const installScriptUrl =
-    process.env.LOCALMEM_INSTALL_SCRIPT_URL || "https://localmem.org/install"
+    process.env.LOCALMEM_INSTALL_SCRIPT_URL || "https://localmem.co/install"
   // Stream curl → sh. spawnSync with shell: true keeps the pipeline
   // semantics; both stdio streams inherit so the user sees the
   // progress lines install.sh writes to stderr.

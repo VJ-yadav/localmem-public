@@ -1,6 +1,6 @@
 {
   "name": "localmem-mcp",
-  "version": "0.3.5",
+  "version": "0.3.6",
   "description": "MCP server for localmem. Exposes the local memory layer (Rust core) to any MCP-compatible AI tool — Claude Desktop / Code, Cursor, Cline, Windsurf. Also installs itself: `npx localmem-mcp install --client claude`.",
   "license": "Apache-2.0",
   "type": "module",

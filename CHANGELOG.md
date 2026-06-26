@@ -3,6 +3,29 @@
 Notable changes to the localmem Community Edition. Per-release detail is also on
 the [GitHub Releases page](https://github.com/VJ-yadav/localmem-community/releases).
 
+## 0.3.6
+
+- `localmem status` now reports decomposition coverage — how many of your
+  signal memories the understanding layer has processed and how many are still
+  undecomposed — with a one-line `localmem understand --backfill` hint. The
+  backlog is read straight from the event log, so it stays accurate even while
+  the always-on service holds the facts store.
+- New MCP `memory_status` tool: your AI assistant can now see the same coverage
+  plus the active decomposition backend, and proactively offer to clear a
+  backlog (e.g. one that built up while a local LLM was switched off).
+- The decomposition backend is now switchable via environment variables
+  (`LOCALMEM_UNDERSTANDING_PROVIDER` / `_MODEL` / `_API_KEY_ENV` / `_ENABLED`),
+  so you can flip between local Ollama and a cloud key for a one-off backfill
+  without editing `config.toml`.
+- `localmem get <id>` and the MCP `memory_get` tool: expand a search/recall hit
+  into its full content plus the derived understanding (summary, intent,
+  entities).
+- Dashboard graph overhaul (fcose layout, cluster filter, fit, edge labels,
+  expand/retract) and a per-project briefing scope fix.
+- `localmem --version` now reports the exact build commit (git SHA via
+  `build.rs`). Embed-backfill skips ephemeral tool-traces for parity with the
+  write and replay paths.
+
 ## 0.3.5
 
 - Fix `localmem search` failing with a DuckDB "Conflicting lock" error while the

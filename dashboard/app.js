@@ -355,8 +355,8 @@ tabs.brain = async function () {
 
   if (!md || md.replace(/^##.*$/m, "").trim() === "") {
     setView(head("Brain", `Session boot briefing · ${label}`, regen),
-      emptyNode("No briefing cached for this scope yet.",
-        "Click ✦ regenerate (a few seconds), or run: localmem understand --backfill --project <p>"));
+      emptyNode(`No briefing for ${label} yet.`,
+        "Click ✦ regenerate above to synthesize one from this project's memory (a few seconds). It distills your facts and understandings into a ranked session-start digest."));
     return;
   }
   setView(
@@ -427,8 +427,14 @@ tabs.search = async function () {
   const q = (state.search || "").trim();
   const sub = `Hybrid: BM25 + meaning + facts → reranked · ${state.project || "all projects"}`;
   if (!q) {
+    const samples = ["what do I prefer", "decisions we locked", "what shipped this week", "what was I working on"];
+    const sampleRow = el("div", { class: "chips-row", style: "margin-top:16px" },
+      el("span", { class: "faint", style: "margin-right:6px" }, "try:"),
+      el("div", { class: "chips" }, ...samples.map((s) =>
+        el("button", { class: "chip", onclick: () => { state.search = s; tabs.search(); } }, s))));
     return setView(head("Search", sub),
-      emptyNode("Search your whole memory.", "Type in the box above, keyword, a phrase, or a question. Results are reranked across lexical, semantic, and the fact graph, scoped to the selected project."));
+      emptyNode("Search your whole memory.", "Type a keyword, a phrase, or a question. Results are reranked across lexical, semantic, and the fact graph, scoped to the selected project."),
+      sampleRow);
   }
   loadingView(`Searching "${q}"…`);
   let res;
@@ -744,7 +750,15 @@ tabs.replay = async function () {
 };
 
 // Cytoscape layout config shared by initial render + anchor-expand relayouts.
-const GRAPH_LAYOUT = { name: "cose", animate: false, padding: 30, nodeRepulsion: 16000, idealEdgeLength: 120, nodeOverlap: 16, gravity: 0.25, componentSpacing: 140, numIter: 1200 };
+// Register fcose (force-directed, packs disconnected components nicely) if its
+// libs loaded; fall back to built-in cose so the graph always renders.
+let FCOSE = false;
+try {
+  if (typeof cytoscape !== "undefined" && window.cytoscapeFcose) { cytoscape.use(window.cytoscapeFcose); FCOSE = true; }
+} catch (_) { FCOSE = false; }
+const GRAPH_LAYOUT = FCOSE
+  ? { name: "fcose", quality: "default", animate: false, randomize: true, padding: 40, nodeSeparation: 120, idealEdgeLength: 110, nodeRepulsion: 6500, gravity: 0.25, gravityRange: 3.8, packComponents: true, numIter: 2500 }
+  : { name: "cose", animate: false, padding: 30, nodeRepulsion: 16000, idealEdgeLength: 120, nodeOverlap: 16, gravity: 0.25, componentSpacing: 140, numIter: 1200 };
 
 tabs.graph = async function () {
   loadingView("Building graph…");
@@ -770,11 +784,24 @@ tabs.graph = async function () {
   // does the same via a degree-ranked snapshot; here we drop components < 3.
   let nodes = nodesIn, hiddenFrags = 0;
   if (!anchorInit) {
-    const adj = new Map(nodesIn.map((n) => [n.id, []]));
-    edges.forEach((e) => { adj.get(e.source).push(e.target); adj.get(e.target).push(e.source); });
+    // Drop only obvious junk labels (None / null / empty / single char). Keep
+    // every real entity, INCLUDING 2-node pairs: those pairs are your decisions
+    // (subject -> relation -> object), not noise to hide.
+    const isJunk = (n) => {
+      const l = String(n.label || n.id || "").trim().toLowerCase();
+      return !l || l === "none" || l === "null" || l === "undefined" || l.length < 2;
+    };
+    let base = nodesIn.filter((n) => !isJunk(n));
+    const baseIds0 = new Set(base.map((n) => n.id));
+    let e2 = edges.filter((e) => baseIds0.has(e.source) && baseIds0.has(e.target));
+    // Keep only meaningful clusters: drop single dots and bare pairs (connected
+    // components < 3 nodes). A real insight is several memories linked together,
+    // not a lone dot or a one-off pair.
+    const adj = new Map(base.map((n) => [n.id, []]));
+    e2.forEach((e) => { adj.get(e.source).push(e.target); adj.get(e.target).push(e.source); });
     const comp = new Map();
     let cid = 0;
-    for (const n of nodesIn) {
+    for (const n of base) {
       if (comp.has(n.id)) continue;
       const stack = [n.id]; comp.set(n.id, cid);
       while (stack.length) { const u = stack.pop(); for (const v of adj.get(u) || []) if (!comp.has(v)) { comp.set(v, cid); stack.push(v); } }
@@ -782,12 +809,17 @@ tabs.graph = async function () {
     }
     const size = {};
     comp.forEach((c) => { size[c] = (size[c] || 0) + 1; });
-    const keep = new Set(nodesIn.filter((n) => size[comp.get(n.id)] >= 3).map((n) => n.id));
-    if (keep.size >= 3) {
-      hiddenFrags = nodesIn.length - keep.size;
-      nodes = nodesIn.filter((n) => keep.has(n.id));
-      edges = edges.filter((e) => keep.has(e.source) && keep.has(e.target));
+    let keep = base.filter((n) => size[comp.get(n.id)] >= 3);
+    if (keep.length < 3) keep = base; // too sparse: don't blank the graph
+    // Cap very large graphs to the most-connected core so it stays legible.
+    if (keep.length > 120) {
+      keep = keep.slice().sort((a, b) =>
+        ((b.degree || 0) + (b.mentions || 0)) - ((a.degree || 0) + (a.mentions || 0))).slice(0, 120);
     }
+    const keepIds = new Set(keep.map((n) => n.id));
+    nodes = keep;
+    edges = e2.filter((e) => keepIds.has(e.source) && keepIds.has(e.target));
+    hiddenFrags = nodesIn.length - nodes.length;
   }
   const elements = [...nodes.map(nodeEl), ...edges.map(edgeEl)];
 
@@ -824,8 +856,10 @@ tabs.graph = async function () {
         "width": 1, "line-color": "rgba(120,140,180,.30)",
         "target-arrow-shape": "triangle", "target-arrow-color": "rgba(120,140,180,.4)",
         "arrow-scale": 0.7, "curve-style": "bezier",
-        "label": "data(label)", "font-size": 7, "color": "#8b97ad",
-        "text-rotation": "autorotate", "text-opacity": 0,
+        "label": "data(label)", "font-size": 8, "color": "#c7d0e0",
+        "text-rotation": "autorotate", "text-opacity": 1, "min-zoomed-font-size": 10,
+        "text-background-color": "#12131a", "text-background-opacity": 0.85,
+        "text-background-padding": 2, "text-background-shape": "roundrectangle",
       }},
       { selector: "edge.hl", style: { "text-opacity": 1, "line-color": "#6ee7d6", "width": 1.6, "target-arrow-color": "#6ee7d6" } },
       { selector: "node.anchor", style: { "border-width": 3, "border-color": "#f7b955" } },
@@ -851,23 +885,51 @@ tabs.graph = async function () {
   if (anchorInit) {
     const a = cy.getElementById(anchorInit);
     if (a && a.nonempty()) { a.addClass("anchor"); cy.animate({ center: { eles: a }, zoom: 1.1 }, { duration: 300 }); }
+  } else {
+    // Fit the whole graph into view once the layout settles, so it never renders
+    // tiny and off-center on first load.
+    cy.one("layoutstop", () => cy.fit(undefined, 50));
   }
 
   // Hover: reveal the relation label + highlight incident edges.
-  cy.on("mouseover", "node", (e) => { e.target.connectedEdges().addClass("hl"); });
-  cy.on("mouseout", "node", (e) => { e.target.connectedEdges().removeClass("hl"); });
+  cy.on("mouseover", "node", (e) => { e.target.connectedEdges().addClass("hl"); cyEl.style.cursor = "pointer"; });
+  cy.on("mouseout", "node", (e) => { e.target.connectedEdges().removeClass("hl"); cyEl.style.cursor = "grab"; });
+
+  // Track which nodes have been expanded, so a second click retracts them.
+  const expanded = new Set();
 
   // Anchor-first expansion (Cypher-lite MATCH (a)-[r]-(n)): pull the 2-hop
   // neighborhood and merge it in, then relayout. Focuses the view the way a
   // knowledge graph is meant to be explored, never the whole hairball at once.
   cy.on("tap", "node", async (evt) => {
     const id = evt.target.id();
+    if (expanded.has(id)) {
+      // Second click on an expanded node: retract the leaf neighbors it added
+      // (degree-1 nodes hanging only off it). Shared / further-explored nodes stay.
+      cy.remove(evt.target.neighborhood("node").filter((n) => n.degree() <= 1));
+      expanded.delete(id);
+      evt.target.removeClass("anchor");
+      renderLegend();
+      cy.animate({ fit: { eles: evt.target.closedNeighborhood(), padding: 90 }, duration: 300 });
+      return;
+    }
     let r;
-    try { r = await api.post("/graph", { anchor: id, limit: 140 }); }
+    try { r = await api.post("/graph", { anchor: id, limit: 60 }); }
     catch (_) { return; }
+    const anchorPos = evt.target.position();
+    let addedColl = cy.collection();
+    const isJunkN = (n) => { const l = String(n.label || n.id || "").trim().toLowerCase(); return !l || l === "none" || l === "null" || l === "undefined" || l.length < 2; };
     cy.batch(() => {
       const have = new Set(cy.nodes().map((n) => n.id()));
-      (r.nodes || []).forEach((n) => { if (!have.has(n.id)) { cy.add(nodeEl(n)); have.add(n.id); } });
+      (r.nodes || []).filter((n) => !isJunkN(n)).forEach((n) => {
+        if (!have.has(n.id)) {
+          const ne = cy.add(nodeEl(n));
+          // Spawn new nodes AT the tapped node so the neighborhood grows outward
+          // from it, instead of the whole canvas re-scattering on every click.
+          ne.position({ x: anchorPos.x + (Math.random() - 0.5) * 80, y: anchorPos.y + (Math.random() - 0.5) * 80 });
+          addedColl = addedColl.union(ne); have.add(n.id);
+        }
+      });
       const haveE = new Set(cy.edges().map((e) => e.data("source") + "|" + e.data("target") + "|" + e.data("label")));
       (r.edges || []).forEach((e, i) => {
         const k = e.source + "|" + e.target + "|" + e.label;
@@ -879,7 +941,16 @@ tabs.graph = async function () {
       evt.target.addClass("anchor");
     });
     renderLegend();
-    cy.layout(GRAPH_LAYOUT).run();
+    expanded.add(id);
+    if (addedColl.nonempty()) {
+      // Lock the existing nodes so only the NEW neighborhood lays out; never
+      // re-fit the viewport. The graph stays put and grows where you clicked.
+      const existing = cy.nodes().difference(addedColl);
+      existing.lock();
+      const lay = cy.layout({ ...GRAPH_LAYOUT, randomize: false, fit: false, animate: true, animationDuration: 350, numIter: 500 });
+      lay.one("layoutstop", () => { existing.unlock(); cy.animate({ fit: { eles: evt.target.closedNeighborhood(), padding: 80 }, duration: 350 }); });
+      lay.run();
+    }
   });
 
   // Query-the-graph: hybrid search (keyword + meaning + temporal phrases like
@@ -933,7 +1004,7 @@ function switchTab(tab) {
 // existing renderer. [subKey, label, tabFn].
 const DEST_SUBS = {
   memory: [["entities", "Entities", "profile"], ["timeline", "Timeline", "timeline"], ["stream", "Stream", "memories"], ["review", "Review", "review"]],
-  trust: [["audit", "Audit", "audit"], ["activity", "Activity", "activity"], ["replay", "Replay", "replay"]],
+  trust: [["replay", "Event tape", "replay"], ["activity", "Activity", "activity"], ["audit", "Audit", "audit"]],
 };
 async function renderDest(dest) {
   const subs = DEST_SUBS[dest];
@@ -1023,4 +1094,8 @@ pollStatus(); setInterval(pollStatus, 10000);
 // Resolve the default project BEFORE the first render so the dashboard lands
 // scoped to the developer's current work (loadProjects swallows its own errors,
 // so the view always renders even if the tag fetch fails).
-loadProjects().finally(() => switchTab("home"));
+// Deep-linkable tabs: open the tab named in the URL hash (#graph, #brain, ...),
+// default to home. Also lets the tab be screenshotted / shared directly.
+function tabFromHash() { const h = (location.hash || "").replace(/^#/, "").trim(); return h || "home"; }
+loadProjects().finally(() => switchTab(tabFromHash()));
+window.addEventListener("hashchange", () => switchTab(tabFromHash()));

@@ -111,4 +111,4 @@ Pure HTML + CSS + JS. No build step.
 open dashboard/index.html
 ```
 
-To make a change you'd contribute back: edit, test locally, open a PR against `VJ-yadav/localmem-community-public`. The dashboard is intentionally framework-free; please don't add React / Vue / Svelte unless we genuinely need them.
+To make a change you'd contribute back: edit, test locally, open a PR against `VJ-yadav/localmem-public`. The dashboard is intentionally framework-free; please don't add React / Vue / Svelte unless we genuinely need them.

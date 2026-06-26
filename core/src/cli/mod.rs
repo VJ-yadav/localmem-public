@@ -97,6 +97,7 @@ pub mod doctor;
 pub mod export;
 pub mod fetch_model;
 pub mod forget;
+pub mod get;
 pub mod hooks;
 pub mod import_wizard;
 pub mod init;

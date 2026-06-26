@@ -16,6 +16,7 @@ import type { CoreClient } from "./client.js";
 import { resolveProjectPath } from "./project.js";
 import {
   ForgetInput,
+  GetInput,
   JournalInput,
   ProfileInput,
   RecallInput,
@@ -23,6 +24,7 @@ import {
   SearchInput,
   WriteInput,
   type ForgetResponse,
+  type GetResponse,
   type JournalResponse,
   type ProfileResponse,
   type RecallResponse,
@@ -220,6 +222,55 @@ export const JournalTool: ToolHandler<typeof JournalInput._type, JournalResponse
   },
 };
 
+export const GetTool: ToolHandler<typeof GetInput._type, GetResponse> = {
+  name: "memory_get",
+  description:
+    "Expand a search/recall hit into its FULL content plus understanding " +
+    "(summary, intent, entities). Pass the event_id from a hit's `sources`. " +
+    "Use this when a search snippet or title isn't enough and you need the whole memory.",
+  inputSchema: zodToJsonSchema(
+    {
+      event_id: {
+        type: "string",
+        description:
+          "The event id of the memory to expand (from a search hit's `sources`).",
+      },
+    },
+    ["event_id"],
+  ),
+  _validator: GetInput,
+  async run(input: unknown, core: CoreClient): Promise<GetResponse> {
+    const parsed = GetInput.parse(input);
+    return core.post("/get", parsed, Responses.Get);
+  },
+};
+
+// Health + decomposition backlog, so the AI assistant can SEE (and tell the
+// user about) memories the understanding layer has not processed yet — e.g.
+// when the local LLM/Ollama is switched off to save RAM and a backlog builds
+// up silently. Without this the backlog is only visible via the CLI/dashboard.
+export const StatusTool: ToolHandler<Record<string, never>, unknown> = {
+  name: "memory_status",
+  description:
+    "Health + decomposition backlog of the memory store: total memories captured, how " +
+    "many the understanding layer has decomposed, how many are still UNDECOMPOSED (e.g. " +
+    "because the local LLM/Ollama is off), and which backend is active. Call this to tell " +
+    "the user about a backlog and offer to run `localmem understand --backfill`.",
+  inputSchema: zodToJsonSchema({}, []),
+  _validator: { parse: () => ({}) as Record<string, never> },
+  async run(_input: unknown, core: CoreClient): Promise<unknown> {
+    const s = await core.get("/stats", Responses.Status);
+    const undecomposed = Math.max(0, s.coverage.signal - s.coverage.decomposed);
+    const hint =
+      undecomposed > 0
+        ? `${undecomposed} of ${s.coverage.signal} signal memories are NOT decomposed ` +
+          `(${s.coverage.percent}% understood). Start the understanding worker (a running ` +
+          "localmem server + a reachable backend) and run `localmem understand --backfill`."
+        : `All ${s.coverage.signal} signal memories are decomposed (100%).`;
+    return { ...s, undecomposed, hint };
+  },
+};
+
 /// All tools the MCP server exposes. Order is not significant; clients
 /// list tools by name. Adding a tool here is the only registration step.
 export const TOOLS: ReadonlyArray<ToolHandler<unknown, unknown>> = [
@@ -229,4 +280,6 @@ export const TOOLS: ReadonlyArray<ToolHandler<unknown, unknown>> = [
   ProfileTool,
   ForgetTool,
   JournalTool,
+  GetTool,
+  StatusTool,
 ] as unknown as ReadonlyArray<ToolHandler<unknown, unknown>>;

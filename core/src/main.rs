@@ -7,8 +7,8 @@ use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
 use clap::{Parser, Subcommand};
 use localmem::cli::{
-    audit, brief, doctor, export, fetch_model, forget, hooks, import_wizard, init, journal, mcp,
-    profile, recall, recent, reindex, replay,
+    audit, brief, doctor, export, fetch_model, forget, get, hooks, import_wizard, init, journal,
+    mcp, profile, recall, recent, reindex, replay,
     search::{self, Mode as SearchMode},
     service, setup, status, subjects, summarize, tag_arg, tags as tags_cmd, todo, understand,
     write,
@@ -21,7 +21,12 @@ use tracing::info;
 /// Version string with build provenance: the crate semver plus the git short
 /// SHA stamped by build.rs. So `localmem --version` always resolves to an exact
 /// commit, which is the cure for "we don't know what binary is running".
-const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), " (", env!("LOCALMEM_GIT_SHA"), ")");
+const VERSION: &str = concat!(
+    env!("CARGO_PKG_VERSION"),
+    " (",
+    env!("LOCALMEM_GIT_SHA"),
+    ")"
+);
 
 #[derive(Parser, Debug)]
 #[command(name = "localmem", version = VERSION, about = "Local-first AI memory layer")]
@@ -367,6 +372,16 @@ enum Command {
     /// List container tags in use across captures with counts (T-53).
     Tags {
         /// Emit results as a single JSON object on stdout.
+        #[arg(long)]
+        json: bool,
+    },
+
+    /// Expand a memory by its event id into full content + understanding
+    Get {
+        /// Event id to expand (from a search hit's `sources`).
+        event_id: String,
+
+        /// Emit the raw JSON response on stdout.
         #[arg(long)]
         json: bool,
     },
@@ -736,6 +751,7 @@ async fn main() -> Result<()> {
         }
         Command::Subjects { json } => subjects::run(cli.home.as_deref(), json)?,
         Command::Tags { json } => tags_cmd::run(cli.home.as_deref(), json)?,
+        Command::Get { event_id, json } => get::run(cli.home.as_deref(), &event_id, json)?,
         Command::Recent { limit, json } => recent::run(cli.home.as_deref(), limit, json)?,
         Command::Summarize { tags, kind, json } => {
             let tags_map = tag_arg::parse_tags_arg(tags.as_deref()).context("parse --tags")?;

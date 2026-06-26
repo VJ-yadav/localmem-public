@@ -1195,6 +1195,90 @@ pub async fn search(
     }))
 }
 
+// ---------------------------------------------------------------------------
+// /get (read-path R1): expand a hit (event_id) into the FULL memory + its
+// understanding — the cure for "search returned a title, not the content".
+// search/recall return bounded snippets for cost control; this fetches the
+// whole memory on demand, the way an agent drills from a hit to the detail.
+// ---------------------------------------------------------------------------
+
+#[derive(Deserialize)]
+pub struct GetRequest {
+    pub event_id: String,
+}
+
+#[derive(Serialize)]
+pub struct UnderstandingView {
+    pub summary: String,
+    pub intent: String,
+    pub entities: Vec<crate::event::UnderstoodEntity>,
+    pub references: Vec<String>,
+    pub salience: String,
+}
+
+#[derive(Serialize)]
+pub struct GetResponse {
+    pub ok: bool,
+    pub event_id: String,
+    pub found: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub content: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub valid_from: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub understanding: Option<UnderstandingView>,
+}
+
+pub async fn get(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<GetRequest>,
+) -> Result<Json<GetResponse>, ApiError> {
+    let target = req.event_id.trim().to_string();
+    if target.is_empty() {
+        return Err(ApiError::bad_request(
+            "empty_id",
+            "event_id must not be empty",
+        ));
+    }
+    // One pass over the immutable log: collect the capture (full text) and its
+    // understanding (derived meaning). O(n) is fine for a single on-demand fetch.
+    let mut content = None;
+    let mut valid_from = None;
+    let mut understanding = None;
+    for ev in state
+        .event_log
+        .iter()
+        .map_err(internal("get_failed", "open event log"))?
+    {
+        let ev = ev.map_err(internal("get_failed", "read event"))?;
+        match &ev.kind {
+            crate::event::EventKind::Capture(p) if ev.id.to_string() == target => {
+                content = Some(p.text.clone());
+                valid_from = Some(ev.ts.to_rfc3339_opts(SecondsFormat::Millis, true));
+            }
+            crate::event::EventKind::Understanding(u) if u.source_id.to_string() == target => {
+                understanding = Some(UnderstandingView {
+                    summary: u.summary.clone(),
+                    intent: u.intent.clone(),
+                    entities: u.entities.clone(),
+                    references: u.references.clone(),
+                    salience: u.salience.clone(),
+                });
+            }
+            _ => {}
+        }
+    }
+    let found = content.is_some();
+    Ok(Json(GetResponse {
+        ok: true,
+        event_id: target,
+        found,
+        content,
+        valid_from,
+        understanding,
+    }))
+}
+
 fn parse_rfc3339(s: &str) -> Result<DateTime<Utc>> {
     let parsed =
         DateTime::parse_from_rfc3339(s).map_err(|e| anyhow::anyhow!("parse RFC3339 {s:?}: {e}"))?;

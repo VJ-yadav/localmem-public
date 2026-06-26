@@ -64,6 +64,7 @@ pub fn run_checks(home: &Path, core_addr: &str) -> Vec<CheckResult> {
         check_home_initialised(home),
         check_model_present(home),
         check_reranker(home),
+        check_stores_fresh(home),
         check_server_reachable(core_addr),
     ];
     if cfg!(target_os = "macos") {
@@ -145,14 +146,63 @@ fn check_home_initialised(home: &Path) -> CheckResult {
     }
 }
 
+/// Staleness gate: the lexical index should hold roughly one doc per signal
+/// capture (ephemeral tool-traces are excluded by design). Far fewer means the
+/// derived stores drifted from the event log — the failure where a large import
+/// never got a full `replay` and search silently missed most memories.
+fn check_stores_fresh(home: &Path) -> CheckResult {
+    let signal_captures = crate::event_log::EventLog::open(home).ok().and_then(|log| {
+        log.iter().ok().map(|it| {
+            it.filter_map(|e| e.ok())
+                .filter(
+                    |e| matches!(&e.kind, crate::event::EventKind::Capture(p) if !p.is_ephemeral()),
+                )
+                .count() as u64
+        })
+    });
+    let lexical_docs = crate::lexical::LexicalIndex::open_reader_only(home)
+        .ok()
+        .map(|idx| idx.doc_count());
+    match (signal_captures, lexical_docs) {
+        (Some(caps), Some(docs)) if caps > 0 => {
+            // 10% slack for in-flight writes / async indexing.
+            if docs.saturating_mul(10) < caps.saturating_mul(9) {
+                CheckResult {
+                    name: "derived stores fresh",
+                    status: Status::Warn,
+                    detail: format!(
+                        "lexical index holds {docs} docs but the log has {caps} signal captures; \
+                         stores drifted — search will miss memories"
+                    ),
+                    fix: Some(
+                        "localmem replay  # full rebuild of derived stores from the event log"
+                            .into(),
+                    ),
+                }
+            } else {
+                CheckResult {
+                    name: "derived stores fresh",
+                    status: Status::Pass,
+                    detail: format!("{docs} lexical docs vs {caps} signal captures"),
+                    fix: None,
+                }
+            }
+        }
+        _ => CheckResult {
+            name: "derived stores fresh",
+            status: Status::Pass,
+            detail: "no derived stores to check yet".into(),
+            fix: None,
+        },
+    }
+}
+
 fn check_model_present(home: &Path) -> CheckResult {
     // The model dir defaults to <home>/models/bge-small-en-v1.5/ but
     // is overridable via LOCALMEM_MODEL_DIR. Mirror the same
     // resolution the CLI search uses so the doctor matches the real
     // load path.
-    let model_dir = std::env::var("LOCALMEM_MODEL_DIR")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| home.join("models").join("bge-small-en-v1.5"));
+    let model_dir = crate::embed::resolve_model_dir(home);
     let model_file = model_dir.join("model.onnx");
     let tok_file = model_dir.join("tokenizer.json");
     let have_model = model_file.is_file();
