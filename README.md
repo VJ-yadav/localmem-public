@@ -37,7 +37,7 @@
 > Cursor can't remember what you told ChatGPT.
 > Every AI chat starts from zero.
 
-**localmem** is the memory layer that follows you across every AI tool you use. **Status:** v0.3.5, rerank + a local cross-encoder on by default; 75% on LongMemEval.
+**localmem** is the memory layer that follows you across every AI tool you use. **Status:** v0.3.6, rerank + a local cross-encoder on by default; 75% on LongMemEval.
 
 ---
 
