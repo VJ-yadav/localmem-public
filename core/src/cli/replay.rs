@@ -564,7 +564,7 @@ mod tests {
         tags.insert("retention".to_string(), "ephemeral:7d".to_string());
         let trace = Event::new(
             EventKind::Capture(CapturePayload {
-                text: "[Bash] cd /Users/vjsnapp/DATA_LAB/localmem".into(),
+                text: "[Bash] cd /home/user/projects/app".into(),
                 kind: crate::kind::Kind::Other("trace".into()),
                 tags,
                 ..Default::default()
@@ -576,7 +576,7 @@ mod tests {
             },
         );
         log.append(&trace).unwrap();
-        log.append(&fact_event("localmem", "/Users/vjsnapp/DATA_LAB", trace.id))
+        log.append(&fact_event("localmem", "/home/user/projects", trace.id))
             .unwrap();
 
         // A real signal capture + its fact.

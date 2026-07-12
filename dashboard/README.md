@@ -51,8 +51,8 @@ The script auto-opens your default browser to `http://localhost:8088/?api=/api`.
 `~/.localmem` is always listed. Use the env vars to surface per-project stores too:
 
 ```bash
-# Example: scan ~/DATA_LAB for project stores
-LOCALMEM_DASHBOARD_SCAN="$HOME/DATA_LAB" python3 dashboard/serve.py
+# Example: scan ~/projects for project stores
+LOCALMEM_DASHBOARD_SCAN="$HOME/projects" python3 dashboard/serve.py
 ```
 
 Stop with Ctrl-C.
@@ -65,7 +65,7 @@ To switch the active store, stop the current core and start a new one:
 
 ```bash
 # Ctrl-C the running `localmem serve`, then:
-localmem serve --home /Users/you/DATA_LAB/simplestub/.localmem
+localmem serve --home /Users/you/projects/app/.localmem
 ```
 
 Then refresh the dashboard. The active marker moves; subjects + tags + recent now show that store's data.

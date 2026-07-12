@@ -371,7 +371,7 @@ mod tests {
         Source {
             app: "claude-code".into(),
             host: "studio.local".into(),
-            user: Some("vjsnapp".into()),
+            user: Some("alice".into()),
         }
     }
 
@@ -407,7 +407,7 @@ mod tests {
                 "source": {
                     "app": "claude-code",
                     "host": "studio.local",
-                    "user": "vjsnapp"
+                    "user": "alice"
                 },
                 "version": 1
             })

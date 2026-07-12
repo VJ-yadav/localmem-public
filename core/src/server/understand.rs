@@ -418,7 +418,7 @@ mod tests {
         tags.insert("retention".to_string(), "ephemeral:7d".to_string());
         let by_retention = Event::new(
             EventKind::Capture(CapturePayload {
-                text: "[Bash] cd /Users/vjsnapp/DATA_LAB/localmem".into(),
+                text: "[Bash] cd /home/user/projects/app".into(),
                 tags,
                 ..Default::default()
             }),
