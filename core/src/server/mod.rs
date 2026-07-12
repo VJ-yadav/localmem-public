@@ -279,6 +279,32 @@ impl AppState {
                     })
             } else {
                 // Remote: the user's OWN frontier key (BYO). No resolve_model.
+                // Populate the key env var from `api_key_file` if it isn't already
+                // in the environment, so the always-on launchd service (which has
+                // no shell env) can use a remote backend without a plist secret.
+                let key_env = cfg.understanding.api_key_env.clone();
+                if !key_env.is_empty()
+                    && std::env::var(&key_env).map(|v| v.trim().is_empty()).unwrap_or(true)
+                {
+                    let kf = cfg.understanding.api_key_file.trim();
+                    if !kf.is_empty() {
+                        let p = std::path::Path::new(kf);
+                        let path = if p.is_absolute() {
+                            p.to_path_buf()
+                        } else {
+                            home.join(kf)
+                        };
+                        match crate::config::load_key_from_file(&path, &key_env) {
+                            Some(key) => {
+                                std::env::set_var(&key_env, key);
+                                info!(file = %path.display(), var = %key_env,
+                                    "understanding: loaded remote API key from api_key_file");
+                            }
+                            None => warn!(file = %path.display(), var = %key_env,
+                                "understanding: api_key_file set but key not found in it (worker idle)"),
+                        }
+                    }
+                }
                 let model = cfg.understanding.model.clone();
                 match build_decomposer(&provider, &model, &endpoint, &cfg.understanding.api_key_env)
                 {
@@ -298,11 +324,20 @@ impl AppState {
             match built {
                 Some((decomposer, model)) => {
                     let (tx, rx) = mpsc::channel::<UnderstandJob>(UNDERSTAND_QUEUE_CAP);
+                    // Local Ollama can only run one on-box inference at a time; a
+                    // remote provider is network-bound, so decompose several in
+                    // parallel (decompositions are independent). See #11.
+                    let understand_concurrency = if provider.is_empty() || provider == "ollama" {
+                        1
+                    } else {
+                        understand::REMOTE_DECOMPOSE_CONCURRENCY
+                    };
                     tokio::spawn(understand_worker(
                         rx,
                         decomposer,
                         cfg.understanding.user_subject.clone(),
                         model.clone(),
+                        understand_concurrency,
                         event_log.clone(),
                         facts.clone(),
                         journal.clone(),

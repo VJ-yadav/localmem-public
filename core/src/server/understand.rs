@@ -28,12 +28,19 @@ use serde_json::Map;
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
-use tokio::sync::{mpsc, Mutex};
+use tokio::sync::{mpsc, Mutex, Semaphore};
 use tracing::{info, warn};
 
 /// Bounded queue for captures awaiting understanding. Mirrors `EMBED_QUEUE_CAP`:
 /// applies backpressure so a write burst can't grow memory unboundedly.
 pub(crate) const UNDERSTAND_QUEUE_CAP: usize = 2048;
+
+/// Max concurrent decompositions when the provider is REMOTE (network-latency
+/// bound, not local-compute bound). Local Ollama stays at 1 — a single on-box
+/// model can't parallelize and would thrash a small machine. Decompositions are
+/// independent (each is a pure function of one capture's text), so unordered
+/// concurrency is safe; kept modest to respect remote rate limits. See #11.
+pub(crate) const REMOTE_DECOMPOSE_CONCURRENCY: usize = 6;
 
 /// One capture awaiting decomposition. Carries the whole event so the worker
 /// inherits the capture's tags, kind, valid-time, and source on the facts it
@@ -42,16 +49,21 @@ pub struct UnderstandJob {
     pub capture: Event,
 }
 
-/// Background understanding worker. Processes captures one at a time: each is a
-/// separate LLM prompt, and sequential processing is naturally throttled, which
-/// is what we want on a single user's machine (no thundering herd against the
-/// local model). Runs until the channel closes (`AppState` dropped).
+/// Background understanding worker. Decomposes each committed capture into
+/// summary + intent + entities. `concurrency` bounds how many decompositions run
+/// at once: 1 for local Ollama (a single on-box model can't parallelize), higher
+/// for a remote provider (network-latency bound, so N in flight is the throughput
+/// win). Decompositions are independent — each is a pure function of one
+/// capture's text — so unordered concurrency is safe; the shared event log and
+/// facts store serialize their own writes. Runs until the channel closes
+/// (`AppState` dropped).
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn understand_worker(
     mut rx: mpsc::Receiver<UnderstandJob>,
     decomposer: Arc<dyn Decomposer>,
     user_subject: String,
     model: String,
+    concurrency: usize,
     event_log: Arc<EventLog>,
     facts: Arc<Mutex<FactsStore>>,
     journal: Arc<Journal>,
@@ -63,8 +75,31 @@ pub(crate) async fn understand_worker(
     embed_tx: Option<mpsc::Sender<crate::server::EmbedJob>>,
     embed_pending: Arc<AtomicUsize>,
 ) {
+    let n = concurrency.max(1);
+    let sem = Arc::new(Semaphore::new(n));
     while let Some(job) = rx.recv().await {
+        // Acquire a slot BEFORE pulling the next job so at most `concurrency`
+        // decompositions are ever in flight (backpressure, not unbounded spawn).
+        let permit = match sem.clone().acquire_owned().await {
+            Ok(p) => p,
+            Err(_) => break, // semaphore closed => shutting down
+        };
         let capture = job.capture;
+        // Clone the shared handles into the task. With concurrency == 1 this is
+        // effectively sequential (the next acquire blocks until this task drops
+        // its permit); with N it runs N decompositions in parallel.
+        let decomposer = decomposer.clone();
+        let user_subject = user_subject.clone();
+        let model = model.clone();
+        let event_log = event_log.clone();
+        let facts = facts.clone();
+        let journal = journal.clone();
+        let pending = pending.clone();
+        let briefing_dirty = briefing_dirty.clone();
+        let embed_tx = embed_tx.clone();
+        let embed_pending = embed_pending.clone();
+        tokio::spawn(async move {
+            let _permit = permit; // held for the task's lifetime, frees the slot on completion
         // Ephemeral working memory (tool-use traces) never seeds the durable
         // understanding layer: decomposing it wastes a model call and pollutes
         // the entity graph + profile with command/file-path noise. The raw
@@ -73,12 +108,26 @@ pub(crate) async fn understand_worker(
         // through, so the rule holds for `/write` and backfill alike.
         if is_ephemeral_capture(&capture) {
             pending.fetch_sub(1, Ordering::SeqCst);
-            continue;
+            return;
         }
         let (text, opts) = decompose_inputs(&capture, &user_subject);
         if text.trim().is_empty() {
             pending.fetch_sub(1, Ordering::SeqCst);
-            continue;
+            return;
+        }
+        // Decomposition-eligibility gate: capture stays comprehensive, but only
+        // knowledge-bearing captures are worth an LLM call. Pasted command/log
+        // output and tiny fragments are marked processed with a skip-marker
+        // understanding (empty payload) so they never re-enqueue and coverage
+        // still reaches 100% — no model call spent. Biased toward KEEP so a real
+        // learning is never dropped on a borderline call. Same choke point as the
+        // ephemeral rule, so it holds for `/write` and backfill alike.
+        if !worth_decomposing_content(&text) {
+            if let Err(err) = emit_skip_marker(&event_log, &capture) {
+                warn!(error = %err, event_id = %capture.id, "understanding: skip-marker append failed");
+            }
+            pending.fetch_sub(1, Ordering::SeqCst);
+            return;
         }
         match decomposer.decompose(&text, &opts).await {
             Ok(decomp) => {
@@ -169,8 +218,104 @@ pub(crate) async fn understand_worker(
         }
         // No longer pending regardless of outcome (a failure is recoverable by
         // re-running), so `/drain` can make progress.
-        pending.fetch_sub(1, Ordering::SeqCst);
+            pending.fetch_sub(1, Ordering::SeqCst);
+        }); // end tokio::spawn(async move { ... })
     }
+    // Barrier: acquiring every permit is only possible once all in-flight tasks
+    // have released theirs — so this returns only after all decompositions
+    // finish. Keeps worker completion deterministic (tests + graceful drain)
+    // instead of orphaning spawned work when the channel closes.
+    let _ = sem.acquire_many(n as u32).await;
+}
+
+/// Provenance label for captures the eligibility gate skipped. A skip-marker
+/// Understanding carries an empty payload and this model tag, so it is
+/// distinguishable from a real decomposition and a future smarter pass can
+/// re-decompose by filtering it out.
+const ELIGIBILITY_GATE_MODEL: &str = "eligibility-gate:v1";
+
+/// Mark a capture processed-but-not-worth-structuring: emit an Understanding
+/// with an empty payload (salience `"skipped"`). This makes the capture count as
+/// resolved for backfill's idempotency diff AND the coverage metric WITHOUT an
+/// LLM call, so a full backfill reaches 100% instead of stalling forever on
+/// chatter it will never decompose.
+fn emit_skip_marker(event_log: &EventLog, capture: &Event) -> Result<()> {
+    let marker = Decomposition {
+        summary: String::new(),
+        intent: String::new(),
+        entities: Vec::new(),
+        facts: Vec::new(),
+        references: Vec::new(),
+        salience: "skipped".to_string(),
+    };
+    emit_understanding(event_log, capture, &marker, ELIGIBILITY_GATE_MODEL)
+}
+
+/// Cheap, local, provider-agnostic gate deciding whether a capture is worth a
+/// decomposition (LLM) call. Capture stays comprehensive — this only governs the
+/// understanding layer. Biased toward KEEP: only clearly low-value content is
+/// skipped (pasted command/log output, tiny fragments), so a real learning is
+/// never dropped on a borderline call. The ambiguous middle is left to the model
+/// (and, for a capable remote model, a hardened prompt).
+pub(crate) fn worth_decomposing_content(text: &str) -> bool {
+    let t = text.trim();
+    // Too short to carry a durable fact/decision (acks like "ok", "continue").
+    if t.chars().count() < 15 {
+        return false;
+    }
+    !looks_like_pasted_output(t)
+}
+
+/// Heuristic: does this look like pasted terminal/tool/log output rather than a
+/// human's prose? Requires STRONG signals to avoid false positives on real notes
+/// that merely quote a path or a command inline.
+fn looks_like_pasted_output(t: &str) -> bool {
+    // Explicit tool/log markers are decisive.
+    const STRONG_MARKERS: [&str; 7] = [
+        "[Bash]",
+        "[mcp__",
+        "DEBUG OUTPUT",
+        "EXECUTION OUTPUT",
+        "Traceback (most recent call last)",
+        "stdout.log",
+        "test_summary.json",
+    ];
+    if STRONG_MARKERS.iter().any(|m| t.contains(m)) {
+        return true;
+    }
+    let lines: Vec<&str> = t.lines().collect();
+    // Need volume before calling something a machine "dump".
+    if lines.len() < 5 {
+        return false;
+    }
+    // Two or more banner rules (====, ----) read as machine output, not prose.
+    let banners = lines
+        .iter()
+        .filter(|l| {
+            let s = l.trim();
+            s.len() >= 4 && (s.chars().all(|c| c == '=') || s.chars().all(|c| c == '-'))
+        })
+        .count();
+    if banners >= 2 {
+        return true;
+    }
+    // A clear majority of shell/log-looking lines.
+    let cmdish = lines
+        .iter()
+        .filter(|l| {
+            let s = l.trim_start();
+            s.starts_with('$')
+                || s.starts_with("> ")
+                || s.starts_with("cd ")
+                || s.starts_with("git ")
+                || s.starts_with("npm ")
+                || s.starts_with("pip ")
+                || s.starts_with("sudo ")
+                || s.starts_with("python")
+                || (s.starts_with('[') && s.contains("] "))
+        })
+        .count();
+    cmdish * 2 >= lines.len()
 }
 
 /// True when a capture is short-lived working memory and must NOT seed the
@@ -476,6 +621,7 @@ mod tests {
             decomposer,
             "user".to_string(),
             "test-model".to_string(),
+            1,
             event_log.clone(),
             facts.clone(),
             journal.clone(),
@@ -542,6 +688,28 @@ mod tests {
         assert!(!worth_understanding(&trace));
     }
 
+    #[test]
+    fn eligibility_gate_keeps_knowledge_skips_obvious_noise() {
+        // Real learnings pass through to decomposition.
+        assert!(worth_decomposing_content(
+            "PROJECT NAME (canonical): acme-api is the billing service, separate from auth."
+        ));
+        // Tiny fragments / acks (< 15 chars) are skipped.
+        assert!(!worth_decomposing_content("ok"));
+        assert!(!worth_decomposing_content("continue"));
+        assert!(!worth_decomposing_content("sure,"));
+        // Pasted tool/command output is skipped (strong marker).
+        assert!(!worth_decomposing_content("[Bash] cd ~/Documents && ls -la"));
+        // A multi-line machine dump (banners + shell lines) is skipped.
+        let dump = "=========== DEBUG OUTPUT ===========\n$ cargo test\n$ ls -la\n----- done -----\n0 pass 1 fail";
+        assert!(!worth_decomposing_content(dump));
+        // Conservative bias: a longer note that merely QUOTES a path is KEPT,
+        // so a real learning is never dropped on a borderline call.
+        assert!(worth_decomposing_content(
+            "The setup guide lives at docs/onboarding/setup.md — read it before the first run."
+        ));
+    }
+
     #[tokio::test]
     async fn worker_skips_empty_capture_without_persisting() {
         let dir = TempDir::new().unwrap();
@@ -570,6 +738,7 @@ mod tests {
             decomposer,
             "user".to_string(),
             "test-model".to_string(),
+            1,
             event_log.clone(),
             facts.clone(),
             journal.clone(),
