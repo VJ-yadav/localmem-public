@@ -228,6 +228,13 @@ pub struct UnderstandingSection {
     /// `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`) — never the key itself, so the
     /// config stays safe to commit. Empty for the local Ollama default.
     pub api_key_env: String,
+    /// Optional path to a dotenv-style file holding the remote API key
+    /// (`export OPENAI_API_KEY=...`). When the provider is remote and
+    /// `api_key_env`'s variable isn't already in the environment, the server
+    /// loads the key from this file — so the always-on service can use a remote
+    /// backend without a secret in the launchd plist. Relative paths resolve
+    /// against the localmem home. Empty = don't read any file.
+    pub api_key_file: String,
 }
 impl Default for UnderstandingSection {
     fn default() -> Self {
@@ -238,6 +245,7 @@ impl Default for UnderstandingSection {
             user_subject: "user".to_string(),
             provider: "ollama".to_string(),
             api_key_env: String::new(),
+            api_key_file: String::new(),
         }
     }
 }
@@ -604,14 +612,63 @@ impl Config {
                 self.understanding.api_key_env = s.trim().to_string();
             }
         }
+        if let Ok(s) = std::env::var("LOCALMEM_UNDERSTANDING_API_KEY_FILE") {
+            if !s.trim().is_empty() {
+                self.understanding.api_key_file = s.trim().to_string();
+            }
+        }
         self
     }
+}
+
+/// Load the value of `var_name` from a dotenv-style key file (`KEY=value` or
+/// `export KEY=value`, optional surrounding quotes; `#` comments ignored).
+/// Returns None if the file is unreadable or the variable is absent. Lets the
+/// always-on service pick up a remote API key from a file (e.g.
+/// `~/.localmem/openai.env`) without a secret in the launchd plist or the
+/// committed config.
+pub fn load_key_from_file(path: &std::path::Path, var_name: &str) -> Option<String> {
+    let content = std::fs::read_to_string(path).ok()?;
+    for line in content.lines() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let line = line.strip_prefix("export ").unwrap_or(line);
+        if let Some((k, v)) = line.split_once('=') {
+            if k.trim() == var_name {
+                let v = v.trim().trim_matches(|c| c == '"' || c == '\'').trim();
+                if !v.is_empty() {
+                    return Some(v.to_string());
+                }
+            }
+        }
+    }
+    None
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use tempfile::tempdir;
+
+    #[test]
+    fn load_key_from_file_parses_export_and_quoted_forms() {
+        let dir = tempdir().unwrap();
+        let f = dir.path().join("openai.env");
+        std::fs::write(&f, "# a comment\nexport OPENAI_API_KEY=sk-abc123\nOTHER=nope\n").unwrap();
+        assert_eq!(
+            load_key_from_file(&f, "OPENAI_API_KEY").as_deref(),
+            Some("sk-abc123")
+        );
+        assert_eq!(load_key_from_file(&f, "MISSING"), None);
+        std::fs::write(&f, "OPENAI_API_KEY=\"sk-quoted\"\n").unwrap();
+        assert_eq!(
+            load_key_from_file(&f, "OPENAI_API_KEY").as_deref(),
+            Some("sk-quoted")
+        );
+        assert_eq!(load_key_from_file(&dir.path().join("nope.env"), "X"), None);
+    }
 
     #[test]
     fn missing_config_returns_defaults() {
