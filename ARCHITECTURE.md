@@ -102,7 +102,7 @@ ever. To "delete" a memory, emit a `forget` event.
   "source": {
     "app": "claude-code",                 // which tool emitted this
     "host": "studio.local",
-    "user": "vjsnapp"
+    "user": "alice"
   },
   "version": 1                            // schema version
 }
