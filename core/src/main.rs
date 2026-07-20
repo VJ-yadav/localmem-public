@@ -527,8 +527,8 @@ enum TodoAction {
 #[derive(Subcommand, Debug)]
 enum McpAction {
     /// Auto-install localmem into the named client's MCP config.
-    /// Supported clients: claude, claude-code, cursor, windsurf, cline.
-    /// Codex and aider report a clear "not yet supported" message in v0.2.
+    /// Supported clients: claude, claude-code, cursor, windsurf, cline, codex.
+    /// Aider reports a clear "not yet supported" message in v0.2.
     Install {
         /// Client slug (e.g. `claude`, `cursor`, `cline`).
         client: String,

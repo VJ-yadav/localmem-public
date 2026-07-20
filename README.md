@@ -137,7 +137,7 @@ We are deliberately the narrowest MCP surface in the category. The full power li
 
 | Wired via `localmem mcp install --client <name>` | Generic MCP config |
 |---|---|
-| Claude Desktop, Claude Code, Cursor, Cline, Windsurf | Continue, Zed, Codex, OpenCode, Aider, custom MCP clients — see [docs/HOW_IT_WORKS.md](docs/HOW_IT_WORKS.md#9-per-project-memory) for the generic recipe |
+| Claude Desktop, Claude Code, Cursor, Cline, Windsurf, Codex | Continue, Zed, OpenCode, Aider, custom MCP clients — see [docs/HOW_IT_WORKS.md](docs/HOW_IT_WORKS.md#9-per-project-memory) for the generic recipe |
 
 After install, restart the AI client. Ask the agent "do you have memory tools?" — it should mention `memory_write`, `memory_search`, `memory_recall`, `memory_profile`, `memory_forget`, `memory_journal`.
 

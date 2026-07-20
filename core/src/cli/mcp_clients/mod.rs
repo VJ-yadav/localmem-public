@@ -30,6 +30,7 @@ use std::path::{Path, PathBuf};
 pub mod claude_code;
 pub mod claude_desktop;
 pub mod cline;
+pub mod codex;
 pub mod cursor;
 pub mod windsurf;
 
@@ -102,8 +103,7 @@ impl ClientId {
 
 /// One MCP server entry to add to a client's config. Currently
 /// produces the Anthropic-style `mcpServers.{name}` shape every JSON
-/// adapter shares; Codex's TOML shape (when supported) will use the
-/// same struct rendered differently.
+/// adapter shares. Codex renders the same entry into its TOML shape.
 #[derive(Debug, Clone)]
 pub struct McpServerEntry {
     /// MCP server name key (always `"localmem"` for now).
@@ -257,7 +257,7 @@ pub trait McpClient {
     fn uninstall(&self, home: &Path) -> Result<bool>;
 
     /// Optional error message for clients that don't yet support
-    /// auto-install (Codex, Aider). When this returns `Some`, the
+    /// auto-install (currently Aider). When this returns `Some`, the
     /// dispatcher prints it and skips touching any files.
     fn unsupported_msg(&self) -> Option<&'static str> {
         None
@@ -403,20 +403,30 @@ fn read_or_default_object(path: &Path) -> Result<Value> {
 /// filesystem so a crash mid-write leaves either the old file or the
 /// new file in place — never a half-written one.
 fn write_config_atomic(path: &Path, value: &Value) -> Result<()> {
+    let serialized = serde_json::to_string_pretty(value).context("serialize MCP config")?;
+    write_config_text_atomic(path, &serialized, "mcp_config.json")
+}
+
+pub(crate) fn write_config_text_atomic(
+    path: &Path,
+    serialized: &str,
+    fallback_name: &str,
+) -> Result<()> {
     let mut tmp = path.to_path_buf();
     let file_name = path
         .file_name()
         .and_then(|s| s.to_str())
-        .unwrap_or("mcp_config.json");
+        .unwrap_or(fallback_name);
     tmp.set_file_name(format!("{file_name}.localmem.tmp"));
 
-    let serialized = serde_json::to_string_pretty(value).context("serialize MCP config")?;
     {
         let mut f = fs::File::create(&tmp)
             .with_context(|| format!("create temp config at {}", tmp.display()))?;
         f.write_all(serialized.as_bytes())
             .with_context(|| format!("write temp config at {}", tmp.display()))?;
-        f.write_all(b"\n").context("write trailing newline")?;
+        if !serialized.ends_with('\n') {
+            f.write_all(b"\n").context("write trailing newline")?;
+        }
         f.sync_data().context("fsync temp config")?;
     }
     fs::rename(&tmp, path)
@@ -424,7 +434,7 @@ fn write_config_atomic(path: &Path, value: &Value) -> Result<()> {
     Ok(())
 }
 
-fn backup_path_for(path: &Path) -> PathBuf {
+pub(crate) fn backup_path_for(path: &Path) -> PathBuf {
     let mut p = path.to_path_buf();
     let file_name = path
         .file_name()
@@ -443,36 +453,8 @@ pub fn adapter(id: ClientId) -> Box<dyn McpClient> {
         ClientId::Cursor => Box::new(cursor::Cursor),
         ClientId::Windsurf => Box::new(windsurf::Windsurf),
         ClientId::Cline => Box::new(cline::Cline),
-        ClientId::Codex => Box::new(CodexStub),
+        ClientId::Codex => Box::new(codex::Codex),
         ClientId::Aider => Box::new(AiderStub),
-    }
-}
-
-/// Stub adapter for Codex (OpenAI CLI) — config is TOML, not JSON,
-/// and lives at `~/.codex/config.toml`. v0.2 does not auto-install
-/// here; we print the manual snippet instead. T-50 follow-up to land
-/// real TOML support.
-pub struct CodexStub;
-
-impl McpClient for CodexStub {
-    fn id(&self) -> ClientId {
-        ClientId::Codex
-    }
-    fn config_path(&self, home: &Path) -> PathBuf {
-        home.join(".codex").join("config.toml")
-    }
-    fn install(&self, _home: &Path, _entry: &McpServerEntry) -> Result<InstallReceipt> {
-        bail!("{}", self.unsupported_msg().unwrap())
-    }
-    fn uninstall(&self, _home: &Path) -> Result<bool> {
-        bail!("{}", self.unsupported_msg().unwrap())
-    }
-    fn unsupported_msg(&self) -> Option<&'static str> {
-        Some(
-            "codex uses TOML config; auto-install lands in a v0.2 follow-up. \
-             For now, edit ~/.codex/config.toml manually \
-             (see docs/CLAUDE_DESKTOP_SETUP.md for the entry shape).",
-        )
     }
 }
 
