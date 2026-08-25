@@ -43,8 +43,7 @@ pub enum ClientId {
     Cursor,
     Windsurf,
     Cline,
-    /// Stub: TOML config, no install support yet. See
-    /// [`unsupported_msg`].
+    /// Codex CLI's TOML configuration.
     Codex,
     /// Stub: aider does not yet ship MCP support in its core CLI.
     Aider,

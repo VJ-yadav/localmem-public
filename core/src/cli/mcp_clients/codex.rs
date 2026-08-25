@@ -92,6 +92,8 @@ impl McpClient for Codex {
             .map(|servers| servers.remove("localmem").is_some())
             .unwrap_or(false);
         if removed {
+            let backup_path = backup_path_for(&config_path);
+            back_up(&config_path, &backup_path)?;
             let serialized = toml::to_string_pretty(&root).context("serialize Codex MCP config")?;
             write_config_text_atomic(&config_path, &serialized, "config.toml")?;
         }
@@ -228,8 +230,22 @@ mod tests {
     #[test]
     fn uninstall_removes_only_localmem() {
         let home = tempdir().unwrap();
-        Codex.install(home.path(), &entry()).unwrap();
+        let config = Codex.config_path(home.path());
+        fs::create_dir_all(config.parent().unwrap()).unwrap();
+        fs::write(
+            &config,
+            "[mcp_servers.other]\ncommand = \"other-server\"\n\n[mcp_servers.localmem]\ncommand = \"bun\"\n",
+        )
+        .unwrap();
+
         assert!(Codex.uninstall(home.path()).unwrap());
         assert!(!Codex.is_installed(home.path()).unwrap());
+        let parsed = read_config(&config).unwrap();
+        assert_eq!(
+            parsed["mcp_servers"]["other"]["command"].as_str(),
+            Some("other-server")
+        );
+        let backup = fs::read_to_string(backup_path_for(&config)).unwrap();
+        assert!(backup.contains("[mcp_servers.localmem]"));
     }
 }
