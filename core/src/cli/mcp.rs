@@ -145,7 +145,7 @@ pub fn run_uninstall(home_override: Option<&str>, client_slug: &str, as_json: bo
 
 /// `localmem mcp list` handler. Walks every known client and reports
 /// whether localmem is currently registered, plus the path where the
-/// client would store its config. Unsupported clients (Codex, Aider)
+/// client would store its config. Unsupported clients (currently Aider)
 /// surface their unsupported reason so users see the full picture.
 pub fn run_list(home_override: Option<&str>, as_json: bool) -> Result<()> {
     let home = resolve_home(home_override)?;
@@ -363,15 +363,14 @@ mod tests {
     }
 
     #[test]
-    fn install_codex_returns_unsupported_msg() {
+    fn install_codex_writes_toml_config() {
         let tmp = tempdir().unwrap();
         let _g = faked_env();
-        let err = run_install(tmp.path().to_str(), "codex", "127.0.0.1:7788", true).unwrap_err();
-        let msg = format!("{err:#}");
-        assert!(
-            msg.contains("codex") && msg.contains("TOML"),
-            "expected unsupported-codex message, got: {msg}"
-        );
+        run_install(tmp.path().to_str(), "codex", "127.0.0.1:7788", true).unwrap();
+        let config = std::fs::read_to_string(tmp.path().join(".codex/config.toml")).unwrap();
+        assert!(config.contains("[mcp_servers.localmem]"));
+        assert!(config.contains("[mcp_servers.localmem.env]"));
+        assert!(config.contains("LOCALMEM_CORE_URL = \"http://127.0.0.1:7788\""));
     }
 
     #[test]

@@ -11,10 +11,10 @@ Supported clients (Community Edition):
 - [Cursor](#cursor)
 - [Windsurf](#windsurf)
 - [Cline (VS Code)](#cline-vs-code)
+- [Codex](#codex)
 
-Auto-install for **Codex** and **Aider** is reported as not-yet-supported
-(the auto-installer prints a clear message); they can still be wired
-manually if you write the MCP config yourself.
+Auto-install for **Aider** is reported as not-yet-supported. It can
+still be wired manually if you use an MCP-capable Aider extension.
 
 ---
 
@@ -239,6 +239,34 @@ the path so we can add detection.
 ```bash
 localmem mcp uninstall --client cline
 ```
+
+---
+
+## Codex
+
+**Config file:** `~/.codex/config.toml`
+
+### Install
+
+```bash
+localmem mcp install --client codex
+```
+
+The installer preserves other Codex settings and MCP servers, writes a
+`[mcp_servers.localmem]` table, and carries `LOCALMEM_CORE_URL` in
+`[mcp_servers.localmem.env]`. It saves the previous file as
+`config.toml.localmem.bak` before changing it.
+
+Restart Codex after installation, then ask it to list its MCP tools and
+run a `memory_search` smoke test.
+
+### Uninstall
+
+```bash
+localmem mcp uninstall --client codex
+```
+
+This removes only the `localmem` table.
 
 ---
 

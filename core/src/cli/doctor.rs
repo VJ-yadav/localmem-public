@@ -71,7 +71,7 @@ pub fn run_checks(home: &Path, core_addr: &str) -> Vec<CheckResult> {
         out.push(check_gatekeeper_quarantine());
     }
     // MCP client wiring: one row per known client. We surface even
-    // unsupported clients (Codex, Aider) so the table is the
+    // unsupported clients (currently Aider) so the table is the
     // canonical "what does localmem think it knows about every
     // tool" answer.
     let host_home = std::env::var("HOME").ok().map(PathBuf::from);
